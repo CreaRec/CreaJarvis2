@@ -11,9 +11,17 @@ const els = {
   wsUrl: document.getElementById("wsUrl"),
   connectBtn: document.getElementById("connectBtn"),
   talkBtn: document.getElementById("talkBtn"),
+  textForm: document.getElementById("textForm"),
+  textInput: document.getElementById("textInput"),
+  sendBtn: document.getElementById("sendBtn"),
   status: document.getElementById("status"),
   log: document.getElementById("log"),
 };
+
+function setTextEnabled(enabled) {
+  els.textInput.disabled = !enabled;
+  els.sendBtn.disabled = !enabled;
+}
 
 /** @type {WebSocket | null} */
 let ws = null;
@@ -191,6 +199,7 @@ function connect() {
 
   ready = false;
   els.talkBtn.disabled = true;
+  setTextEnabled(false);
   const url = els.wsUrl.value.trim();
   setStatus("connecting…");
   log(`connect ${url}`);
@@ -205,6 +214,7 @@ function connect() {
   ws.onclose = () => {
     ready = false;
     els.talkBtn.disabled = true;
+    setTextEnabled(false);
     setStatus("disconnected");
     log("socket closed");
   };
@@ -225,6 +235,7 @@ function connect() {
       case "ready":
         ready = true;
         els.talkBtn.disabled = false;
+        setTextEnabled(true);
         setStatus("ready", "ok");
         log("session ready");
         break;
@@ -257,6 +268,17 @@ els.connectBtn.addEventListener("click", () => {
       log(String(err));
     }
   })();
+});
+
+els.textForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  if (!ready) return;
+  const text = els.textInput.value.trim();
+  if (!text) return;
+  send({ type: "text", text });
+  log(`you: ${text}`);
+  els.textInput.value = "";
+  els.textInput.focus();
 });
 
 const talk = els.talkBtn;

@@ -124,6 +124,28 @@ button:disabled {
   border-color: var(--accent);
 }
 
+.text-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.text-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #10131a;
+  color: var(--text);
+  font: inherit;
+}
+
+.text-row input:focus {
+  outline: none;
+  border-color: #3d5566;
+}
+
 .log {
   margin: 1rem 0 0;
   max-height: 220px;

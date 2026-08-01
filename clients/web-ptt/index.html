@@ -26,6 +26,17 @@
         Hold to talk
       </button>
 
+      <form id="textForm" class="text-row">
+        <input
+          id="textInput"
+          type="text"
+          placeholder="Напишите сообщение…"
+          autocomplete="off"
+          disabled
+        />
+        <button id="sendBtn" type="submit" disabled>Send</button>
+      </form>
+
       <pre id="log" class="log" aria-live="polite"></pre>
     </main>
     <script type="module" src="./app.js"></script>
