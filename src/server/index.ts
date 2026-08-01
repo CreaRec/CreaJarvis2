@@ -13,12 +13,14 @@ import { PlanStore, toItemPublic } from "../plans/store.js";
 import { ClientRegistry } from "../reminders/client-registry.js";
 import { ReminderPoller } from "../reminders/poller.js";
 import { ReminderStore, toPublic } from "../reminders/store.js";
+import { ThemeStore } from "../themes/store.js";
 import { BraveClient } from "../search/brave-client.js";
 import { ToolGateway } from "../tools/gateway.js";
 import { createMemoryTools } from "../tools/memory-tools.js";
 import { createPlanTools } from "../tools/plan-tools.js";
 import { createReminderTools } from "../tools/reminder-tools.js";
 import { createSearchTools } from "../tools/search-tools.js";
+import { createThemeTools } from "../tools/theme-tools.js";
 import { VoiceGateway } from "./voice-gateway.js";
 
 function applyCors(res: import("node:http").ServerResponse): void {
@@ -43,6 +45,7 @@ async function main(): Promise<void> {
     config.USER_TIMEZONE,
     embedder,
   );
+  const themeStore = new ThemeStore(prisma, embedder);
   const clientRegistry = new ClientRegistry();
   const poller = new ReminderPoller(reminderStore, clientRegistry, config);
 
@@ -85,6 +88,9 @@ async function main(): Promise<void> {
     tools.register(tool);
   }
   for (const tool of createPlanTools({ store: planStore, config })) {
+    tools.register(tool);
+  }
+  for (const tool of createThemeTools({ store: themeStore })) {
     tools.register(tool);
   }
 
@@ -155,6 +161,29 @@ async function main(): Promise<void> {
                 date: i.localDate,
               })),
               count: items.length,
+            }),
+          );
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          applyCors(res);
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: message }));
+        }
+      })();
+      return;
+    }
+
+    if (url === "/debug/themes" && req.method === "GET") {
+      void (async () => {
+        try {
+          const rows = await themeStore.listForDebug(100);
+          applyCors(res);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(
+            JSON.stringify({
+              ok: true,
+              rows,
+              count: rows.length,
             }),
           );
         } catch (err) {

@@ -115,3 +115,65 @@ model PlanItem {
   @@index([scheduledAt])
   @@map("plan_items")
 }
+
+enum ThemeKind {
+  idea
+  project
+  trip
+}
+
+enum ThemeStatus {
+  active
+  on_hold
+  done
+  archived
+}
+
+enum ThemeEntryKind {
+  note
+  question
+  decision
+  checklist
+  link
+}
+
+enum ThemeEntryStatus {
+  open
+  done
+  cancelled
+}
+
+model Theme {
+  id            String      @id @default(uuid()) @db.Uuid
+  kind          ThemeKind
+  title         String
+  status        ThemeStatus @default(active)
+  summary       String?
+  meta          Json?
+  rawUtterance  String?
+  embedding     Unsupported("vector(1536)")?
+  lastTouchedAt DateTime    @default(now())
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  entries       ThemeEntry[]
+
+  @@index([kind, status])
+  @@index([lastTouchedAt])
+  @@map("themes")
+}
+
+model ThemeEntry {
+  id           String           @id @default(uuid()) @db.Uuid
+  themeId      String           @db.Uuid
+  theme        Theme            @relation(fields: [themeId], references: [id], onDelete: Cascade)
+  kind         ThemeEntryKind   @default(note)
+  status       ThemeEntryStatus @default(open)
+  text         String
+  rawUtterance String?
+  embedding    Unsupported("vector(1536)")?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@index([themeId, createdAt])
+  @@map("theme_entries")
+}

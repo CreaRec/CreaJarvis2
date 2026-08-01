@@ -20,6 +20,7 @@
     "smoke:search": "tsx scripts/smoke-search.ts",
     "smoke:reminders": "tsx scripts/smoke-reminders.ts",
     "smoke:plans": "tsx scripts/smoke-plans.ts",
+    "smoke:themes": "tsx scripts/smoke-themes.ts",
     "entrypoint": "prisma migrate deploy && tsx src/server/index.ts"
   },
   "dependencies": {

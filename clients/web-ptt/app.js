@@ -27,6 +27,10 @@ const els = {
   debugPlansRefreshBtn: document.getElementById("debugPlansRefreshBtn"),
   debugPlansMeta: document.getElementById("debugPlansMeta"),
   debugPlansTable: document.getElementById("debugPlansTable"),
+  debugThemesDetails: document.getElementById("debugThemesDetails"),
+  debugThemesRefreshBtn: document.getElementById("debugThemesRefreshBtn"),
+  debugThemesMeta: document.getElementById("debugThemesMeta"),
+  debugThemesTable: document.getElementById("debugThemesTable"),
 };
 
 function setTextEnabled(enabled) {
@@ -166,8 +170,42 @@ async function refreshDebugPlans() {
   }
 }
 
+async function refreshDebugThemes() {
+  if (!els.debugThemesDetails?.open) return;
+  const base = httpBaseFromWsUrl(els.wsUrl.value.trim());
+  try {
+    const res = await fetch(`${base}/debug/themes`);
+    const json = await res.json();
+    if (!json.ok) {
+      els.debugThemesMeta.textContent = `error: ${json.error ?? res.status}`;
+      return;
+    }
+    const rows = json.rows ?? [];
+    els.debugThemesMeta.textContent = `${rows.length} rows · ${new Date().toLocaleTimeString()}`;
+    const tbody = els.debugThemesTable.querySelector("tbody");
+    tbody.innerHTML = rows
+      .map((r) => {
+        return `<tr>
+          <td>${escapeHtml(r.kind)}</td>
+          <td>${escapeHtml(r.status)}</td>
+          <td class="text-cell">${escapeHtml(r.title)}</td>
+          <td class="text-cell">${escapeHtml(r.entry_text ?? "—")}</td>
+          <td>${escapeHtml(r.entry_kind ?? "—")}</td>
+          <td title="${escapeHtml(r.id)}">${escapeHtml(shortId(r.id))}</td>
+        </tr>`;
+      })
+      .join("");
+  } catch (err) {
+    els.debugThemesMeta.textContent = `fetch failed: ${String(err)}`;
+  }
+}
+
 async function refreshAllDebug() {
-  await Promise.all([refreshDebugReminders(), refreshDebugPlans()]);
+  await Promise.all([
+    refreshDebugReminders(),
+    refreshDebugPlans(),
+    refreshDebugThemes(),
+  ]);
 }
 
 function syncDebugTimer() {
@@ -176,7 +214,9 @@ function syncDebugTimer() {
     debugTimer = null;
   }
   const anyOpen =
-    els.debugRemindersDetails?.open || els.debugPlansDetails?.open;
+    els.debugRemindersDetails?.open ||
+    els.debugPlansDetails?.open ||
+    els.debugThemesDetails?.open;
   if (anyOpen) {
     void refreshAllDebug();
     debugTimer = setInterval(() => void refreshAllDebug(), DEBUG_REFRESH_MS);
@@ -458,10 +498,16 @@ els.debugRefreshBtn?.addEventListener("click", () => {
 els.debugPlansRefreshBtn?.addEventListener("click", () => {
   void refreshDebugPlans();
 });
+els.debugThemesRefreshBtn?.addEventListener("click", () => {
+  void refreshDebugThemes();
+});
 els.debugRemindersDetails?.addEventListener("toggle", () => {
   syncDebugTimer();
 });
 els.debugPlansDetails?.addEventListener("toggle", () => {
+  syncDebugTimer();
+});
+els.debugThemesDetails?.addEventListener("toggle", () => {
   syncDebugTimer();
 });
 syncDebugTimer();
