@@ -9,8 +9,10 @@ import {
   buildWarmProfile,
   formatWarmProfileBlock,
 } from "../memory/warm-profile.js";
+import { BraveClient } from "../search/brave-client.js";
 import { ToolGateway } from "../tools/gateway.js";
 import { createMemoryTools } from "../tools/memory-tools.js";
+import { createSearchTools } from "../tools/search-tools.js";
 import { VoiceGateway } from "./voice-gateway.js";
 
 async function main(): Promise<void> {
@@ -40,6 +42,15 @@ async function main(): Promise<void> {
       cachedInstructions = null;
     },
   })) {
+    tools.register(tool);
+  }
+
+  const brave = new BraveClient(
+    config.BRAVE_API_KEY,
+    config.BRAVE_COUNTRY,
+    config.BRAVE_SEARCH_LANG,
+  );
+  for (const tool of createSearchTools(brave)) {
     tools.register(tool);
   }
 

@@ -15,6 +15,7 @@
     "memory:import": "tsx scripts/import-memory.ts",
     "web-ptt": "node clients/web-ptt/serve.mjs",
     "smoke:text": "tsx scripts/smoke-text.ts",
+    "smoke:search": "tsx scripts/smoke-search.ts",
     "entrypoint": "prisma migrate deploy && tsx src/server/index.ts"
   },
   "dependencies": {

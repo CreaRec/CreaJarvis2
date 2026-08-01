@@ -15,6 +15,9 @@ const envSchema = z.object({
   REALTIME_MODEL: z.string().default("gpt-realtime-2.1"),
   VOICE: z.string().default("marin"),
   VOICE_GATEWAY_URL: z.string().default("ws://127.0.0.1:8787/voice"),
+  BRAVE_API_KEY: z.string().min(1),
+  BRAVE_COUNTRY: z.string().default("US"),
+  BRAVE_SEARCH_LANG: z.string().default("ru"),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

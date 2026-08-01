@@ -60,6 +60,12 @@ export function buildSessionInstructions(warmBlock: string): string {
     "call memory_search before answering. Use memory_save when the user asks to remember something.",
     "Never claim knowledge you did not get from the warm profile or tool results.",
     "",
+    "Live information:",
+    "For current facts, news, docs, or websites — call web_search before answering.",
+    "For nearby businesses, restaurants, landmarks, or POIs — call places_search.",
+    "When the user names a city/area (or home city is known from memory), pass it as near.",
+    "Do not invent news headlines, addresses, ratings, or opening hours without tool results.",
+    "",
     warmBlock || "(No warm profile loaded yet.)",
   ].join("\n");
 }
