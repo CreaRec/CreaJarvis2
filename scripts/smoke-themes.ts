@@ -38,8 +38,30 @@ async function main(): Promise<void> {
   });
   console.log("add_entry:", added.ok);
 
+  const packing = await tools.execute("theme_add_entries", {
+    theme_id: id,
+    items: [{ text: "паспорт" }, { text: "адаптер" }],
+  });
+  console.log("add_entries packing:", packing.ok);
+
   const got = await tools.execute("theme_get", { id });
   console.log("get entries:", (got as { data?: { entries?: unknown[] } }).data?.entries?.length);
+
+  const shopping = await tools.execute("theme_create", {
+    kind: "list",
+    title: "smoke: Costco",
+    first_entry: { text: "молоко" },
+  });
+  console.log("list create:", shopping.ok);
+  if (shopping.ok) {
+    const listId = (shopping.data as { id: string }).id;
+    const bulk = await tools.execute("theme_add_entries", {
+      theme_id: listId,
+      items: [{ text: "яйца" }, { text: "хлеб" }],
+    });
+    console.log("list add_entries:", bulk.ok);
+    await tools.execute("theme_archive", { id: listId });
+  }
 
   const idea = await tools.execute("theme_create", {
     kind: "idea",

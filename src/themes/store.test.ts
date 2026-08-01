@@ -141,6 +141,65 @@ describe("ThemeStore", () => {
     );
   });
 
+  it("addEntries creates N items and bumps lastTouchedAt", async () => {
+    const now = new Date();
+    db.theme.findUnique
+      .mockResolvedValueOnce({
+        id: THEME_ID,
+        kind: "list",
+        title: "Costco",
+        status: "active",
+        summary: null,
+        meta: null,
+        rawUtterance: null,
+        lastTouchedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .mockResolvedValueOnce({
+        id: THEME_ID,
+        kind: "list",
+        title: "Costco",
+        status: "active",
+        summary: null,
+        meta: null,
+        rawUtterance: null,
+        lastTouchedAt: now,
+        createdAt: now,
+        updatedAt: now,
+        entries: [],
+      });
+    db.themeEntry.create
+      .mockResolvedValueOnce({
+        id: "33333333-3333-4333-8333-333333333333",
+        themeId: THEME_ID,
+        kind: "checklist",
+        status: "open",
+        text: "молоко",
+        rawUtterance: null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .mockResolvedValueOnce({
+        id: "44444444-4444-4444-8444-444444444444",
+        themeId: THEME_ID,
+        kind: "checklist",
+        status: "open",
+        text: "яйца",
+        rawUtterance: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+    db.theme.update.mockResolvedValue({});
+
+    await store.addEntries(THEME_ID, [
+      { text: "молоко", kind: "checklist" },
+      { text: "яйца", kind: "checklist" },
+    ]);
+    expect(db.themeEntry.create).toHaveBeenCalledTimes(2);
+    expect(db.theme.update).toHaveBeenCalledTimes(1);
+  });
+
   it("archive sets status archived", async () => {
     const now = new Date();
     db.theme.update.mockResolvedValue({});

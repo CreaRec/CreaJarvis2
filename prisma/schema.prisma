@@ -120,6 +120,7 @@ enum ThemeKind {
   idea
   project
   trip
+  list
 }
 
 enum ThemeStatus {

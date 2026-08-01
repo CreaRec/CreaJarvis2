@@ -33,6 +33,7 @@ function makeStore(
     getById: vi.fn(),
     search: vi.fn(),
     addEntry: vi.fn(),
+    addEntries: vi.fn(),
     updateTheme: vi.fn(),
     updateEntry: vi.fn(),
     promote: vi.fn(),
@@ -113,16 +114,64 @@ describe("createThemeTools", () => {
     }
   });
 
-  it("theme_add_entry", async () => {
+  it("theme_create kind=list", async () => {
     const store = makeStore({
-      addEntry: vi.fn().mockResolvedValue(makeTheme()),
+      create: vi.fn().mockResolvedValue(makeTheme({ kind: "list", title: "Costco" })),
     });
     const gw = gatewayWith(store);
-    const result = await gw.execute("theme_add_entry", {
-      theme_id: THEME_ID,
-      text: "нужны визы",
+    const result = await gw.execute("theme_create", {
+      kind: "list",
+      title: "Costco",
+      first_entry: { text: "молоко" },
     });
     expect(result.ok).toBe(true);
+    expect(store.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "list",
+        firstEntry: expect.objectContaining({ kind: "checklist" }),
+      }),
+    );
+  });
+
+  it("theme_add_entries defaults kind to checklist", async () => {
+    const store = makeStore({
+      addEntries: vi.fn().mockResolvedValue(makeTheme({ kind: "list" })),
+    });
+    const gw = gatewayWith(store);
+    const result = await gw.execute("theme_add_entries", {
+      theme_id: THEME_ID,
+      items: [{ text: "молоко" }, { text: "яйца" }],
+    });
+    expect(result.ok).toBe(true);
+    expect(store.addEntries).toHaveBeenCalledWith(THEME_ID, [
+      expect.objectContaining({ text: "молоко", kind: "checklist" }),
+      expect.objectContaining({ text: "яйца", kind: "checklist" }),
+    ]);
+  });
+
+  it("theme_add_entries ambiguous query returns candidates", async () => {
+    const store = makeStore({
+      search: vi.fn().mockResolvedValue([
+        makeTheme({ id: THEME_ID, title: "Costco" }),
+        makeTheme({
+          id: "00000000-0000-4000-8000-000000000002",
+          title: "Costco 2",
+        }),
+      ]),
+      addEntries: vi.fn(),
+    });
+    const gw = gatewayWith(store);
+    const result = await gw.execute("theme_add_entries", {
+      query: "costco",
+      items: [{ text: "хлеб" }],
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(
+        (result.data as { need_clarification?: boolean }).need_clarification,
+      ).toBe(true);
+    }
+    expect(store.addEntries).not.toHaveBeenCalled();
   });
 
   it("theme_promote", async () => {

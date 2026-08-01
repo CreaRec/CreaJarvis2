@@ -53,7 +53,10 @@ describe("buildSessionInstructions", () => {
     expect(text).toContain("warm");
     expect(text).toContain("plan_get");
     expect(text).toContain("CRITICAL date mapping");
-    expect(text).toContain("Themes (ideas / projects / trips):");
+    expect(text).toContain("Themes (ideas / projects / trips / lists):");
     expect(text).toContain("theme_*");
+    expect(text).toContain("theme_add_entries");
+    expect(text).toContain("kind=list");
+    expect(text).toContain("checklist");
   });
 });

@@ -9,7 +9,8 @@ import type {
 } from "../themes/types.js";
 import { type ToolDefinition, z } from "./gateway.js";
 
-const kindSchema = z.enum(["idea", "project", "trip"]);
+const THEME_KINDS = ["idea", "project", "trip", "list"] as const;
+const kindSchema = z.enum(THEME_KINDS);
 const statusSchema = z.enum(["active", "on_hold", "done", "archived"]);
 const entryKindSchema = z.enum([
   "note",
@@ -20,6 +21,35 @@ const entryKindSchema = z.enum([
 ]);
 const entryStatusSchema = z.enum(["open", "done", "cancelled"]);
 
+async function resolveThemeId(
+  store: ThemeStore,
+  opts: { theme_id?: string; query?: string; kind?: ThemeKind },
+): Promise<
+  | { ok: true; themeId: string }
+  | { ok: false; error: string }
+  | {
+      ok: true;
+      clarification: { need_clarification: true; candidates: unknown[] };
+    }
+> {
+  if (opts.theme_id) return { ok: true, themeId: opts.theme_id };
+  const hits = await store.search(opts.query!, {
+    kind: opts.kind,
+    limit: 5,
+  });
+  if (hits.length === 0) return { ok: false, error: "No matching themes" };
+  if (hits.length > 1) {
+    return {
+      ok: true,
+      clarification: {
+        need_clarification: true,
+        candidates: hits.map(toThemePublic),
+      },
+    };
+  }
+  return { ok: true, themeId: hits[0]!.id };
+}
+
 export function createThemeTools(deps: {
   store: ThemeStore;
 }): ToolDefinition[] {
@@ -27,11 +57,11 @@ export function createThemeTools(deps: {
     {
       name: "theme_create",
       description:
-        "Create an idea, project, or trip theme. Keep title/first_entry wording faithful to the user.",
+        "Create an idea, project, trip, or list theme. For shopping/bucket lists use kind=list with checklist entries. Keep title/first_entry wording faithful to the user.",
       parameters: {
         type: "object",
         properties: {
-          kind: { type: "string", enum: ["idea", "project", "trip"] },
+          kind: { type: "string", enum: [...THEME_KINDS] },
           title: { type: "string" },
           summary: { type: "string" },
           meta: {
@@ -74,6 +104,9 @@ export function createThemeTools(deps: {
         if (!parsed.success) {
           return { ok: false, error: parsed.error.message };
         }
+        const firstKind =
+          parsed.data.first_entry?.kind ??
+          (parsed.data.kind === "list" ? "checklist" : undefined);
         const theme = await deps.store.create({
           kind: parsed.data.kind,
           title: parsed.data.title,
@@ -83,7 +116,7 @@ export function createThemeTools(deps: {
           firstEntry: parsed.data.first_entry
             ? {
                 text: parsed.data.first_entry.text,
-                kind: parsed.data.first_entry.kind,
+                kind: firstKind,
                 rawUtterance: parsed.data.first_entry.raw_utterance ?? null,
               }
             : null,
@@ -94,11 +127,11 @@ export function createThemeTools(deps: {
     {
       name: "theme_list",
       description:
-        "List themes (ideas/projects/trips). Default: active, newest touched first.",
+        "List themes (ideas/projects/trips/lists). Default: active, newest touched first.",
       parameters: {
         type: "object",
         properties: {
-          kind: { type: "string", enum: ["idea", "project", "trip"] },
+          kind: { type: "string", enum: [...THEME_KINDS] },
           status: {
             type: "string",
             enum: ["active", "on_hold", "done", "archived"],
@@ -139,7 +172,7 @@ export function createThemeTools(deps: {
         properties: {
           id: { type: "string" },
           query: { type: "string" },
-          kind: { type: "string", enum: ["idea", "project", "trip"] },
+          kind: { type: "string", enum: [...THEME_KINDS] },
         },
       },
       handler: async (raw) => {
@@ -187,7 +220,7 @@ export function createThemeTools(deps: {
         type: "object",
         properties: {
           query: { type: "string" },
-          kind: { type: "string", enum: ["idea", "project", "trip"] },
+          kind: { type: "string", enum: [...THEME_KINDS] },
           limit: { type: "integer", minimum: 1, maximum: 20 },
         },
         required: ["query"],
@@ -218,7 +251,7 @@ export function createThemeTools(deps: {
     {
       name: "theme_add_entry",
       description:
-        "Add a note/question/decision/checklist/link to a theme (by theme_id or query).",
+        "Add a single note/question/decision/checklist/link to a theme (by theme_id or query). Prefer theme_add_entries for multiple items.",
       parameters: {
         type: "object",
         properties: {
@@ -250,32 +283,106 @@ export function createThemeTools(deps: {
           return { ok: false, error: parsed.error.message };
         }
 
-        let themeId = parsed.data.theme_id;
-        if (!themeId) {
-          const hits = await deps.store.search(parsed.data.query!, {
-            limit: 5,
-          });
-          if (hits.length === 0) {
-            return { ok: false, error: "No matching themes" };
-          }
-          if (hits.length > 1) {
-            return {
-              ok: true,
-              data: {
-                need_clarification: true,
-                candidates: hits.map(toThemePublic),
-              },
-            };
-          }
-          themeId = hits[0]!.id;
+        const resolved = await resolveThemeId(deps.store, {
+          theme_id: parsed.data.theme_id,
+          query: parsed.data.query,
+        });
+        if (!resolved.ok) return resolved;
+        if ("clarification" in resolved) {
+          return { ok: true, data: resolved.clarification };
         }
 
         const theme = await deps.store.addEntry({
-          themeId,
+          themeId: resolved.themeId,
           text: parsed.data.text,
           kind: parsed.data.kind as ThemeEntryKind | undefined,
           rawUtterance: parsed.data.raw_utterance ?? null,
         });
+        if (!theme) return { ok: false, error: "Theme not found" };
+        return { ok: true, data: toThemePublic(theme) };
+      },
+    },
+    {
+      name: "theme_add_entries",
+      description:
+        "Add multiple entries to a theme in one call (shopping lists, packing). Default item kind is checklist when omitted.",
+      parameters: {
+        type: "object",
+        properties: {
+          theme_id: { type: "string" },
+          query: { type: "string" },
+          kind: {
+            type: "string",
+            enum: [...THEME_KINDS],
+            description: "Optional filter when resolving by query",
+          },
+          items: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                text: { type: "string" },
+                kind: {
+                  type: "string",
+                  enum: [
+                    "note",
+                    "question",
+                    "decision",
+                    "checklist",
+                    "link",
+                  ],
+                },
+                raw_utterance: { type: "string" },
+              },
+              required: ["text"],
+            },
+          },
+        },
+        required: ["items"],
+      },
+      handler: async (raw) => {
+        const schema = z
+          .object({
+            theme_id: z.string().uuid().optional(),
+            query: z.string().min(1).optional(),
+            kind: kindSchema.optional(),
+            items: z
+              .array(
+                z.object({
+                  text: z.string().min(1),
+                  kind: entryKindSchema.optional(),
+                  raw_utterance: z.string().optional(),
+                }),
+              )
+              .min(1)
+              .max(50),
+          })
+          .refine((v) => Boolean(v.theme_id || v.query), {
+            message: "Provide theme_id or query",
+          });
+        const parsed = schema.safeParse(raw);
+        if (!parsed.success) {
+          return { ok: false, error: parsed.error.message };
+        }
+
+        const resolved = await resolveThemeId(deps.store, {
+          theme_id: parsed.data.theme_id,
+          query: parsed.data.query,
+          kind: parsed.data.kind,
+        });
+        if (!resolved.ok) return resolved;
+        if ("clarification" in resolved) {
+          return { ok: true, data: resolved.clarification };
+        }
+
+        const theme = await deps.store.addEntries(
+          resolved.themeId,
+          parsed.data.items.map((item) => ({
+            text: item.text,
+            kind: item.kind ?? "checklist",
+            rawUtterance: item.raw_utterance ?? null,
+          })),
+        );
         if (!theme) return { ok: false, error: "Theme not found" };
         return { ok: true, data: toThemePublic(theme) };
       },
@@ -294,7 +401,7 @@ export function createThemeTools(deps: {
             enum: ["active", "on_hold", "done", "archived"],
           },
           meta: { type: "object", nullable: true },
-          kind: { type: "string", enum: ["idea", "project", "trip"] },
+          kind: { type: "string", enum: [...THEME_KINDS] },
         },
         required: ["id"],
       },

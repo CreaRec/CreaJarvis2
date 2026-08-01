@@ -206,26 +206,49 @@ export class ThemeStore {
     kind?: ThemeEntryKind;
     rawUtterance?: string | null;
   }): Promise<ThemeRecord | null> {
-    const exists = await this.db.theme.findUnique({
-      where: { id: input.themeId },
-    });
-    if (!exists) return null;
-
-    const entry = await this.db.themeEntry.create({
-      data: {
-        themeId: input.themeId,
+    return this.addEntries(input.themeId, [
+      {
         text: input.text,
         kind: input.kind ?? "note",
-        rawUtterance: input.rawUtterance ?? null,
+        rawUtterance: input.rawUtterance,
       },
-    });
+    ]);
+  }
+
+  async addEntries(
+    themeId: string,
+    items: Array<{
+      text: string;
+      kind?: ThemeEntryKind;
+      rawUtterance?: string | null;
+    }>,
+  ): Promise<ThemeRecord | null> {
+    if (items.length === 0) return this.getById(themeId);
+
+    const exists = await this.db.theme.findUnique({ where: { id: themeId } });
+    if (!exists) return null;
+
+    const created = await Promise.all(
+      items.map((item) =>
+        this.db.themeEntry.create({
+          data: {
+            themeId,
+            text: item.text,
+            kind: item.kind ?? "note",
+            rawUtterance: item.rawUtterance ?? null,
+          },
+        }),
+      ),
+    );
     await this.db.theme.update({
-      where: { id: input.themeId },
+      where: { id: themeId },
       data: { lastTouchedAt: new Date() },
     });
-    await this.indexEntry(entry.id);
-    await this.indexTheme(input.themeId);
-    return this.getById(input.themeId);
+    for (const entry of created) {
+      await this.indexEntry(entry.id);
+    }
+    await this.indexTheme(themeId);
+    return this.getById(themeId);
   }
 
   async updateTheme(

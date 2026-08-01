@@ -1,4 +1,4 @@
-export type ThemeKind = "idea" | "project" | "trip";
+export type ThemeKind = "idea" | "project" | "trip" | "list";
 export type ThemeStatus = "active" | "on_hold" | "done" | "archived";
 export type ThemeEntryKind =
   | "note"

@@ -9,7 +9,7 @@ Personal Jarvis MVP: OpenAI Realtime voice, Prisma + Postgres/pgvector memory, D
 - **Memory:** warm profile in session instructions; cold facts in Postgres; search via pgvector (`MemoryRetriever` ready for future Qdrant)
 - **Reminders:** Postgres `reminders` + poller; delivery as bottom toast in web-ptt (`reminder.fired`); Debug · Reminders table via `GET /debug/reminders` (see [ADR-002](docs/ADR-002-reminders.md))
 - **Day plans:** Postgres `day_plans` / `plan_items`; timed items link to reminders; Connect toast `plan.today_digest`; Debug · Plans via `GET /debug/plans` (see [ADR-003](docs/ADR-003-day-plans.md))
-- **Themes:** ideas / projects / trips notebooks (`themes` / `theme_entries`); Debug · Themes via `GET /debug/themes` (see [ADR-004](docs/ADR-004-themes.md))
+- **Themes:** ideas / projects / trips / lists notebooks (`themes` / `theme_entries`); Debug · Themes via `GET /debug/themes` (see [ADR-004](docs/ADR-004-themes.md))
 
 ## Quick start
 
