@@ -44,6 +44,8 @@ describe("buildSessionInstructions", () => {
     expect(text).toContain("Never use tomorrow");
     expect(text).toContain("raw_utterance");
     expect(text).toContain("do not rewrite");
+    expect(text).toContain("memory_timeline");
+    expect(text).toContain("created_at");
   });
 
   it("falls back to Chicago defaults", () => {
@@ -58,5 +60,6 @@ describe("buildSessionInstructions", () => {
     expect(text).toContain("theme_add_entries");
     expect(text).toContain("kind=list");
     expect(text).toContain("checklist");
+    expect(text).toContain("memory_timeline");
   });
 });

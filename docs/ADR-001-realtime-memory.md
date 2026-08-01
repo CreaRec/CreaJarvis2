@@ -42,7 +42,10 @@ Future `QdrantRetriever` returns ids only; facts still hydrate from Postgres. Sw
 
 ### 5. Tools
 
-Typed tools only: `memory_search`, `memory_save`, `get_current_time`, search tools, reminder tools (ADR-002), day-plan tools (ADR-003), and theme tools (ADR-004). Executed on Core; results returned as Realtime `function_call_output`. No open shell tool.
+Typed tools only: `memory_search`, `memory_timeline`, `memory_save`, `get_current_time`, search tools, reminder tools (ADR-002), day-plan tools (ADR-003), and theme tools (ADR-004). Executed on Core; results returned as Realtime `function_call_output`. No open shell tool.
+
+- `memory_search` — semantic / relevance ranking for «what do you know about X».
+- `memory_timeline` — keyword match, chronological `createdAt` order for «what did I say about X over time».
 
 ## Consequences
 

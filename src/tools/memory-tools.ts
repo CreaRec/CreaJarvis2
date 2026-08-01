@@ -9,6 +9,12 @@ const searchSchema = z.object({
   limit: z.number().int().min(1).max(20).optional(),
 });
 
+const timelineSchema = z.object({
+  query: z.string().min(1),
+  branch: z.enum(["user", "directives", "world"]).optional(),
+  limit: z.number().int().min(1).max(30).optional(),
+});
+
 const saveSchema = z.object({
   text: z.string().min(1),
   branch: z.enum(["user", "directives", "world"]),
@@ -27,7 +33,7 @@ export function createMemoryTools(deps: {
     {
       name: "memory_search",
       description:
-        "Search long-term memory for facts about the user, directives, or world knowledge.",
+        "Search long-term memory for the most relevant facts about the user, directives, or world knowledge. Use for «what do you know about X». For chronological history of what the user said over time, use memory_timeline instead.",
       parameters: {
         type: "object",
         properties: {
@@ -58,6 +64,55 @@ export function createMemoryTools(deps: {
               text: f.text,
               confidence: f.confidence,
               score: hits[i]?.score,
+            })),
+          },
+        };
+      },
+    },
+    {
+      name: "memory_timeline",
+      description:
+        "Return matching long-term memory facts in chronological order (oldest→newest). Use when the user asks what they said / how their view evolved about a topic over time («напомни что я говорил про…», «как менялось мнение про…»).",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Topic or keywords to match (e.g. смена работы, Португалия)",
+          },
+          branch: {
+            type: "string",
+            enum: ["user", "directives", "world"],
+            description: "Optional memory branch filter",
+          },
+          limit: {
+            type: "integer",
+            minimum: 1,
+            maximum: 30,
+            description: "Max facts (default 15); keeps the most recent window if more match",
+          },
+        },
+        required: ["query"],
+      },
+      handler: async (raw) => {
+        const parsed = timelineSchema.safeParse(raw);
+        if (!parsed.success) {
+          return { ok: false, error: parsed.error.message };
+        }
+        const facts = await deps.store.timeline(parsed.data);
+        return {
+          ok: true,
+          data: {
+            query: parsed.data.query,
+            count: facts.length,
+            results: facts.map((f) => ({
+              id: f.id,
+              branch: f.branch,
+              topic: f.topic,
+              text: f.text,
+              confidence: f.confidence,
+              created_at: f.createdAt.toISOString(),
+              updated_at: f.updatedAt.toISOString(),
             })),
           },
         };

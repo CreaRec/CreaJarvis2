@@ -73,6 +73,8 @@ export function buildSessionInstructions(
     "Do not invent biographical facts about the user.",
     "If the question is about the user, their home, family, preferences, or past context,",
     "call memory_search before answering. Use memory_save when the user asks to remember something lasting.",
+    "«Напомни что я говорил про X» / «как менялось мнение про X» / chronological history of a topic → memory_timeline (not memory_search).",
+    "Narrate memory_timeline results in time order using created_at; end with the latest position and offer to confirm if still current.",
     "Never claim knowledge you did not get from the warm profile or tool results.",
     "",
     "Reminders:",
