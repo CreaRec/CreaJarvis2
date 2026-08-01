@@ -1,0 +1,51 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MemoryBranch {
+  user
+  directives
+  world
+}
+
+enum MemoryConfidence {
+  high
+  medium
+  assumption
+}
+
+enum MemorySensitivity {
+  normal
+  private
+}
+
+model Fact {
+  id          String            @id @default(uuid()) @db.Uuid
+  branch      MemoryBranch
+  topic       String            @default("")
+  text        String
+  confidence  MemoryConfidence  @default(medium)
+  sensitivity MemorySensitivity @default(normal)
+  source      String            @default("")
+  contentHash String            @unique
+  active      Boolean           @default(true)
+  embedding   Unsupported("vector(1536)")?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([branch, active])
+  @@index([topic])
+  @@map("facts")
+}
+
+model Meta {
+  key   String @id
+  value String
+
+  @@map("meta")
+}

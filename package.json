@@ -1,0 +1,33 @@
+{
+  "name": "crea-jarvis2",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server/index.ts",
+    "start": "node dist/src/server/index.js",
+    "build": "tsc -p tsconfig.json",
+    "db:migrate": "prisma migrate deploy",
+    "db:generate": "prisma generate",
+    "memory:import": "tsx scripts/import-memory.ts",
+    "web-ptt": "node clients/web-ptt/serve.mjs",
+    "smoke:text": "tsx scripts/smoke-text.ts",
+    "entrypoint": "prisma migrate deploy && tsx src/server/index.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.12.0",
+    "dotenv": "^16.6.1",
+    "ws": "^8.18.3",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.16.5",
+    "@types/ws": "^8.18.1",
+    "prisma": "^6.12.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  }
+}

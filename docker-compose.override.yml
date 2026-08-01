@@ -1,0 +1,17 @@
+services:
+  core:
+    build:
+      context: .
+      target: dev
+    volumes:
+      - ./src:/app/src
+      - ./scripts:/app/scripts
+      - ./prisma:/app/prisma
+      - ./package.json:/app/package.json
+      - ./tsconfig.json:/app/tsconfig.json
+    command:
+      [
+        "sh",
+        "-c",
+        "npx prisma generate && npx prisma migrate deploy && npx tsx watch src/server/index.ts",
+      ]
