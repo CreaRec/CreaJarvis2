@@ -1,0 +1,49 @@
+import { describe, expect, it } from "vitest";
+import {
+  buildSessionInstructions,
+  formatWarmProfileBlock,
+} from "./warm-profile.js";
+
+describe("formatWarmProfileBlock", () => {
+  it("formats user and directives sections", () => {
+    const block = formatWarmProfileBlock({
+      user: "- likes tea",
+      directives: "- be brief",
+    });
+    expect(block).toContain(
+      "INFORMATION THE USER HAS SHARED IN PRIOR CONVERSATIONS:",
+    );
+    expect(block).toContain("- likes tea");
+    expect(block).toContain("STANDING INSTRUCTIONS FROM THE USER:");
+    expect(block).toContain("- be brief");
+  });
+
+  it("omits empty sections", () => {
+    expect(formatWarmProfileBlock({ user: "", directives: "" })).toBe("");
+    expect(formatWarmProfileBlock({ user: "  ", directives: "- x" })).toBe(
+      "STANDING INSTRUCTIONS FROM THE USER:\n- x",
+    );
+  });
+});
+
+describe("buildSessionInstructions", () => {
+  it("embeds reminder defaults and timezone", () => {
+    const text = buildSessionInstructions("", {
+      morningHour: 9,
+      afternoonHour: 13,
+      eveningHour: 19,
+      nightHour: 22,
+      timeZone: "Europe/Moscow",
+    });
+    expect(text).toContain("User timezone: Europe/Moscow");
+    expect(text).toContain("today at 9:00 / 13:00 / 19:00 / 22:00");
+    expect(text).toContain("reminder_* tools");
+  });
+
+  it("falls back to Chicago defaults", () => {
+    const text = buildSessionInstructions("warm");
+    expect(text).toContain("User timezone: America/Chicago");
+    expect(text).toContain("today at 10:00 / 14:00 / 18:00 / 21:00");
+    expect(text).toContain("warm");
+  });
+});

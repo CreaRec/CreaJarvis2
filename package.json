@@ -14,6 +14,8 @@
     "db:generate": "prisma generate",
     "memory:import": "tsx scripts/import-memory.ts",
     "web-ptt": "node clients/web-ptt/serve.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "smoke:text": "tsx scripts/smoke-text.ts",
     "smoke:search": "tsx scripts/smoke-search.ts",
     "smoke:reminders": "tsx scripts/smoke-reminders.ts",
@@ -30,6 +32,7 @@
     "@types/ws": "^8.18.1",
     "prisma": "^6.12.0",
     "tsx": "^4.20.3",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.7"
   }
 }
