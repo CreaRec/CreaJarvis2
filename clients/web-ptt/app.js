@@ -8,6 +8,7 @@ const TARGET_RATE = 24000;
 const MIN_COMMIT_MS = 120;
 const TOAST_MS = 10000;
 const DEBUG_REFRESH_MS = 5000;
+const LOGS_REFRESH_MS = 2000;
 
 const els = {
   wsUrl: document.getElementById("wsUrl"),
@@ -18,6 +19,9 @@ const els = {
   sendBtn: document.getElementById("sendBtn"),
   status: document.getElementById("status"),
   log: document.getElementById("log"),
+  logsMeta: document.getElementById("logsMeta"),
+  logsRefreshBtn: document.getElementById("logsRefreshBtn"),
+  logsClearBtn: document.getElementById("logsClearBtn"),
   toasts: document.getElementById("toasts"),
   debugRemindersDetails: document.getElementById("debugRemindersDetails"),
   debugRefreshBtn: document.getElementById("debugRefreshBtn"),
@@ -57,11 +61,89 @@ let playChain = Promise.resolve();
 
 /** @type {ReturnType<typeof setInterval> | null} */
 let debugTimer = null;
+/** @type {ReturnType<typeof setInterval> | null} */
+let logsTimer = null;
+let lastServerLogId = 0;
+let logLineCount = 0;
+
+function isLogNearBottom() {
+  const el = els.log;
+  if (!el) return true;
+  return el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+}
+
+/**
+ * @param {object} opts
+ * @param {string} opts.message
+ * @param {"ui" | "core"} [opts.source]
+ * @param {string} [opts.level]
+ * @param {string | Date} [opts.ts]
+ */
+function appendLogLine(opts) {
+  const source = opts.source ?? "ui";
+  const level = opts.level ?? "log";
+  const date = opts.ts ? new Date(opts.ts) : new Date();
+  const stamp = Number.isNaN(date.getTime())
+    ? new Date().toLocaleTimeString()
+    : date.toLocaleTimeString();
+
+  const line = document.createElement("p");
+  line.className = `log-line src-${source} level-${level}`;
+  line.innerHTML = `<span class="stamp">[${stamp}]</span> <span class="src">${source}</span> ${escapeHtml(opts.message)}`;
+
+  const stick = isLogNearBottom();
+  els.log.appendChild(line);
+  logLineCount += 1;
+  if (stick) els.log.scrollTop = els.log.scrollHeight;
+  if (els.logsMeta) {
+    els.logsMeta.textContent = `${logLineCount} lines · ${new Date().toLocaleTimeString()}`;
+  }
+}
 
 function log(line) {
-  const stamp = new Date().toLocaleTimeString();
-  els.log.textContent += `[${stamp}] ${line}\n`;
-  els.log.scrollTop = els.log.scrollHeight;
+  appendLogLine({ source: "ui", level: "log", message: line });
+}
+
+function clearLogsView() {
+  els.log.replaceChildren();
+  logLineCount = 0;
+  if (els.logsMeta) els.logsMeta.textContent = "0 lines";
+}
+
+async function refreshServerLogs() {
+  const base = httpBaseFromWsUrl(els.wsUrl.value.trim());
+  try {
+    const res = await fetch(`${base}/debug/logs?after_id=${lastServerLogId}`);
+    const json = await res.json();
+    if (!json.ok) {
+      if (els.logsMeta) {
+        els.logsMeta.textContent = `core error: ${json.error ?? res.status}`;
+      }
+      return;
+    }
+    const entries = json.entries ?? [];
+    for (const entry of entries) {
+      appendLogLine({
+        source: "core",
+        level: entry.level ?? "log",
+        message: entry.message ?? "",
+        ts: entry.ts,
+      });
+      if (typeof entry.id === "number" && entry.id > lastServerLogId) {
+        lastServerLogId = entry.id;
+      }
+    }
+  } catch (err) {
+    if (els.logsMeta) {
+      els.logsMeta.textContent = `core fetch failed: ${String(err)}`;
+    }
+  }
+}
+
+function startLogsPolling() {
+  if (logsTimer) return;
+  void refreshServerLogs();
+  logsTimer = setInterval(() => void refreshServerLogs(), LOGS_REFRESH_MS);
 }
 
 function setStatus(text, kind = "") {
@@ -510,7 +592,14 @@ els.debugPlansDetails?.addEventListener("toggle", () => {
 els.debugThemesDetails?.addEventListener("toggle", () => {
   syncDebugTimer();
 });
+els.logsRefreshBtn?.addEventListener("click", () => {
+  void refreshServerLogs();
+});
+els.logsClearBtn?.addEventListener("click", () => {
+  clearLogsView();
+});
 syncDebugTimer();
+startLogsPolling();
 
 const talk = els.talkBtn;
 talk.addEventListener("pointerdown", (e) => {

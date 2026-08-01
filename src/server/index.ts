@@ -1,5 +1,9 @@
 import { createServer } from "node:http";
 import { loadConfig } from "../config.js";
+import {
+  debugLogBuffer,
+  installConsoleCapture,
+} from "../debug/log-buffer.js";
 import { prisma } from "../db/prisma.js";
 import { Embedder } from "../memory/embedder.js";
 import { createRetriever } from "../memory/pgvector-retriever.js";
@@ -23,10 +27,23 @@ import { createSearchTools } from "../tools/search-tools.js";
 import { createThemeTools } from "../tools/theme-tools.js";
 import { VoiceGateway } from "./voice-gateway.js";
 
+installConsoleCapture(debugLogBuffer);
+
 function applyCors(res: import("node:http").ServerResponse): void {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+}
+
+function parseAfterId(url: string): number {
+  try {
+    const q = new URL(url, "http://localhost").searchParams.get("after_id");
+    if (q == null || q === "") return 0;
+    const n = Number(q);
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+  } catch {
+    return 0;
+  }
 }
 
 async function main(): Promise<void> {
@@ -193,6 +210,24 @@ async function main(): Promise<void> {
           res.end(JSON.stringify({ ok: false, error: message }));
         }
       })();
+      return;
+    }
+
+    if (
+      (url === "/debug/logs" || url.startsWith("/debug/logs?")) &&
+      req.method === "GET"
+    ) {
+      const afterId = parseAfterId(url);
+      const entries = debugLogBuffer.list({ afterId, limit: 500 });
+      applyCors(res);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          ok: true,
+          entries,
+          count: entries.length,
+        }),
+      );
       return;
     }
 

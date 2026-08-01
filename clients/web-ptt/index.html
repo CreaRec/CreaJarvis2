@@ -8,38 +8,50 @@
   </head>
   <body>
     <div class="layout">
-      <main class="panel">
-        <p class="badge">temporary client · not part of core</p>
-        <h1>Jarvis PTT</h1>
-        <p class="hint">Удерживайте кнопку, говорите, отпустите. Core: Docker на :8787</p>
+      <div class="main-row">
+        <main class="panel">
+          <p class="badge">temporary client · not part of core</p>
+          <h1>Jarvis PTT</h1>
+          <p class="hint">Удерживайте кнопку, говорите, отпустите. Core: Docker на :8787</p>
 
-        <label class="field">
-          <span>Voice Gateway</span>
-          <input id="wsUrl" type="text" value="ws://127.0.0.1:8787/voice" spellcheck="false" />
-        </label>
+          <label class="field">
+            <span>Voice Gateway</span>
+            <input id="wsUrl" type="text" value="ws://127.0.0.1:8787/voice" spellcheck="false" />
+          </label>
 
-        <div class="row">
-          <button id="connectBtn" type="button">Connect</button>
-          <span id="status" class="status">disconnected</span>
-        </div>
+          <div class="row">
+            <button id="connectBtn" type="button">Connect</button>
+            <span id="status" class="status">disconnected</span>
+          </div>
 
-        <button id="talkBtn" type="button" class="talk" disabled>
-          Hold to talk
-        </button>
+          <button id="talkBtn" type="button" class="talk" disabled>
+            Hold to talk
+          </button>
 
-        <form id="textForm" class="text-row">
-          <input
-            id="textInput"
-            type="text"
-            placeholder="Напишите сообщение…"
-            autocomplete="off"
-            disabled
-          />
-          <button id="sendBtn" type="submit" disabled>Send</button>
-        </form>
+          <form id="textForm" class="text-row">
+            <input
+              id="textInput"
+              type="text"
+              placeholder="Напишите сообщение…"
+              autocomplete="off"
+              disabled
+            />
+            <button id="sendBtn" type="submit" disabled>Send</button>
+          </form>
+        </main>
 
-        <pre id="log" class="log" aria-live="polite"></pre>
-      </main>
+        <section class="logs-panel" aria-label="Logs">
+          <div class="logs-header">
+            <h2>Logs</h2>
+            <div class="logs-toolbar">
+              <button type="button" id="logsRefreshBtn">Refresh</button>
+              <button type="button" id="logsClearBtn">Clear</button>
+              <span id="logsMeta" class="debug-meta"></span>
+            </div>
+          </div>
+          <div id="log" class="log" aria-live="polite"></div>
+        </section>
+      </div>
 
       <section class="debug" aria-label="Debug panels">
         <details id="debugRemindersDetails" open>
