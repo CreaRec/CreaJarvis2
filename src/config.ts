@@ -18,6 +18,14 @@ const envSchema = z.object({
   BRAVE_API_KEY: z.string().min(1),
   BRAVE_COUNTRY: z.string().default("US"),
   BRAVE_SEARCH_LANG: z.string().default("ru"),
+  USER_TIMEZONE: z.string().default("America/Chicago"),
+  REMINDER_MORNING_HOUR: z.coerce.number().int().min(0).max(23).default(10),
+  REMINDER_AFTERNOON_HOUR: z.coerce.number().int().min(0).max(23).default(14),
+  REMINDER_EVENING_HOUR: z.coerce.number().int().min(0).max(23).default(18),
+  REMINDER_NIGHT_HOUR: z.coerce.number().int().min(0).max(23).default(21),
+  REMINDER_QUIET_START: z.coerce.number().int().min(0).max(23).default(22),
+  REMINDER_QUIET_END: z.coerce.number().int().min(0).max(23).default(8),
+  REMINDER_POLL_MS: z.coerce.number().int().min(1000).default(15000),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

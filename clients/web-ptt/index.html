@@ -7,38 +7,68 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <main class="panel">
-      <p class="badge">temporary client · not part of core</p>
-      <h1>Jarvis PTT</h1>
-      <p class="hint">Удерживайте кнопку, говорите, отпустите. Core: Docker на :8787</p>
+    <div class="layout">
+      <main class="panel">
+        <p class="badge">temporary client · not part of core</p>
+        <h1>Jarvis PTT</h1>
+        <p class="hint">Удерживайте кнопку, говорите, отпустите. Core: Docker на :8787</p>
 
-      <label class="field">
-        <span>Voice Gateway</span>
-        <input id="wsUrl" type="text" value="ws://127.0.0.1:8787/voice" spellcheck="false" />
-      </label>
+        <label class="field">
+          <span>Voice Gateway</span>
+          <input id="wsUrl" type="text" value="ws://127.0.0.1:8787/voice" spellcheck="false" />
+        </label>
 
-      <div class="row">
-        <button id="connectBtn" type="button">Connect</button>
-        <span id="status" class="status">disconnected</span>
-      </div>
+        <div class="row">
+          <button id="connectBtn" type="button">Connect</button>
+          <span id="status" class="status">disconnected</span>
+        </div>
 
-      <button id="talkBtn" type="button" class="talk" disabled>
-        Hold to talk
-      </button>
+        <button id="talkBtn" type="button" class="talk" disabled>
+          Hold to talk
+        </button>
 
-      <form id="textForm" class="text-row">
-        <input
-          id="textInput"
-          type="text"
-          placeholder="Напишите сообщение…"
-          autocomplete="off"
-          disabled
-        />
-        <button id="sendBtn" type="submit" disabled>Send</button>
-      </form>
+        <form id="textForm" class="text-row">
+          <input
+            id="textInput"
+            type="text"
+            placeholder="Напишите сообщение…"
+            autocomplete="off"
+            disabled
+          />
+          <button id="sendBtn" type="submit" disabled>Send</button>
+        </form>
 
-      <pre id="log" class="log" aria-live="polite"></pre>
-    </main>
+        <pre id="log" class="log" aria-live="polite"></pre>
+      </main>
+
+      <section class="debug" aria-label="Debug panels">
+        <details id="debugRemindersDetails" open>
+          <summary>Debug · Reminders</summary>
+          <div class="debug-toolbar">
+            <button type="button" id="debugRefreshBtn">Refresh</button>
+            <span id="debugRemindersMeta" class="debug-meta"></span>
+          </div>
+          <div class="table-wrap">
+            <table id="debugRemindersTable">
+              <thead>
+                <tr>
+                  <th>status</th>
+                  <th>fire_at_local</th>
+                  <th>text</th>
+                  <th>recurrence</th>
+                  <th>id</th>
+                  <th>raw</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </details>
+        <!-- Future: Facts, Meta, … -->
+      </section>
+    </div>
+
+    <div id="toasts" class="toasts" aria-live="polite"></div>
     <script type="module" src="./app.js"></script>
   </body>
 </html>

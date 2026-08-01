@@ -6,6 +6,8 @@
 
 const TARGET_RATE = 24000;
 const MIN_COMMIT_MS = 120;
+const TOAST_MS = 10000;
+const DEBUG_REFRESH_MS = 5000;
 
 const els = {
   wsUrl: document.getElementById("wsUrl"),
@@ -16,6 +18,11 @@ const els = {
   sendBtn: document.getElementById("sendBtn"),
   status: document.getElementById("status"),
   log: document.getElementById("log"),
+  toasts: document.getElementById("toasts"),
+  debugRemindersDetails: document.getElementById("debugRemindersDetails"),
+  debugRefreshBtn: document.getElementById("debugRefreshBtn"),
+  debugRemindersMeta: document.getElementById("debugRemindersMeta"),
+  debugRemindersTable: document.getElementById("debugRemindersTable"),
 };
 
 function setTextEnabled(enabled) {
@@ -40,6 +47,9 @@ let playCtx = null;
 let playTime = 0;
 let playChain = Promise.resolve();
 
+/** @type {ReturnType<typeof setInterval> | null} */
+let debugTimer = null;
+
 function log(line) {
   const stamp = new Date().toLocaleTimeString();
   els.log.textContent += `[${stamp}] ${line}\n`;
@@ -49,6 +59,88 @@ function log(line) {
 function setStatus(text, kind = "") {
   els.status.textContent = text;
   els.status.className = `status ${kind}`.trim();
+}
+
+function httpBaseFromWsUrl(wsUrl) {
+  try {
+    const u = new URL(wsUrl);
+    const proto = u.protocol === "wss:" ? "https:" : "http:";
+    return `${proto}//${u.host}`;
+  } catch {
+    return "http://127.0.0.1:8787";
+  }
+}
+
+function showToast(title, body, meta = "") {
+  const el = document.createElement("div");
+  el.className = "toast";
+  el.innerHTML = `
+    <p class="toast-title"></p>
+    <button type="button" class="toast-close" aria-label="Close">×</button>
+    <p class="toast-body"></p>
+    <p class="toast-meta"></p>
+  `;
+  el.querySelector(".toast-title").textContent = title;
+  el.querySelector(".toast-body").textContent = body;
+  el.querySelector(".toast-meta").textContent = meta;
+  const close = () => el.remove();
+  el.querySelector(".toast-close").addEventListener("click", close);
+  els.toasts.appendChild(el);
+  setTimeout(close, TOAST_MS);
+}
+
+function shortId(id) {
+  return id ? `${id.slice(0, 8)}…` : "";
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+async function refreshDebugReminders() {
+  if (!els.debugRemindersDetails?.open) return;
+  const base = httpBaseFromWsUrl(els.wsUrl.value.trim());
+  try {
+    const res = await fetch(`${base}/debug/reminders`);
+    const json = await res.json();
+    if (!json.ok) {
+      els.debugRemindersMeta.textContent = `error: ${json.error ?? res.status}`;
+      return;
+    }
+    const rows = json.reminders ?? [];
+    els.debugRemindersMeta.textContent = `${rows.length} rows · ${new Date().toLocaleTimeString()}`;
+    const tbody = els.debugRemindersTable.querySelector("tbody");
+    tbody.innerHTML = rows
+      .map((r) => {
+        const rec = r.recurrence ? JSON.stringify(r.recurrence) : "—";
+        return `<tr>
+          <td>${escapeHtml(r.status)}</td>
+          <td>${escapeHtml(r.fire_at_local)}</td>
+          <td class="text-cell">${escapeHtml(r.text)}</td>
+          <td>${escapeHtml(rec)}</td>
+          <td title="${escapeHtml(r.id)}">${escapeHtml(shortId(r.id))}</td>
+          <td class="text-cell">${escapeHtml(r.raw_utterance ?? "—")}</td>
+        </tr>`;
+      })
+      .join("");
+  } catch (err) {
+    els.debugRemindersMeta.textContent = `fetch failed: ${String(err)}`;
+  }
+}
+
+function syncDebugTimer() {
+  if (debugTimer) {
+    clearInterval(debugTimer);
+    debugTimer = null;
+  }
+  if (els.debugRemindersDetails?.open) {
+    void refreshDebugReminders();
+    debugTimer = setInterval(() => void refreshDebugReminders(), DEBUG_REFRESH_MS);
+  }
 }
 
 function floatTo16BitPCM(float32) {
@@ -248,6 +340,27 @@ function connect() {
       case "response.done":
         log("response.done");
         break;
+      case "reminder.fired": {
+        const r = msg.reminder;
+        showToast("Напоминание", r?.text ?? "", r?.fire_at_local ?? "");
+        log(`reminder.fired: ${r?.text ?? "?"}`);
+        void refreshDebugReminders();
+        break;
+      }
+      case "reminder.missed_digest": {
+        const list = msg.reminders ?? [];
+        const lines = list.map((r) => `• ${r.text} (${r.fire_at_local})`).join("\n");
+        showToast(
+          "Пропущенные напоминания",
+          list.length === 0
+            ? "Нет"
+            : `Пока тебя не было, ${list.length}:\n${lines}`,
+          "",
+        );
+        log(`reminder.missed_digest: ${list.length}`);
+        void refreshDebugReminders();
+        break;
+      }
       case "error":
         setStatus("error", "err");
         log(`error: ${msg.message}`);
@@ -280,6 +393,14 @@ els.textForm.addEventListener("submit", (e) => {
   els.textInput.value = "";
   els.textInput.focus();
 });
+
+els.debugRefreshBtn?.addEventListener("click", () => {
+  void refreshDebugReminders();
+});
+els.debugRemindersDetails?.addEventListener("toggle", () => {
+  syncDebugTimer();
+});
+syncDebugTimer();
 
 const talk = els.talkBtn;
 talk.addEventListener("pointerdown", (e) => {

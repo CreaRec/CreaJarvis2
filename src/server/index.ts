@@ -9,11 +9,21 @@ import {
   buildWarmProfile,
   formatWarmProfileBlock,
 } from "../memory/warm-profile.js";
+import { ClientRegistry } from "../reminders/client-registry.js";
+import { ReminderPoller } from "../reminders/poller.js";
+import { ReminderStore, toPublic } from "../reminders/store.js";
 import { BraveClient } from "../search/brave-client.js";
 import { ToolGateway } from "../tools/gateway.js";
 import { createMemoryTools } from "../tools/memory-tools.js";
+import { createReminderTools } from "../tools/reminder-tools.js";
 import { createSearchTools } from "../tools/search-tools.js";
 import { VoiceGateway } from "./voice-gateway.js";
+
+function applyCors(res: import("node:http").ServerResponse): void {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+}
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -24,13 +34,22 @@ async function main(): Promise<void> {
     store,
     embedder,
   });
+  const reminderStore = new ReminderStore(prisma, embedder);
+  const clientRegistry = new ClientRegistry();
+  const poller = new ReminderPoller(reminderStore, clientRegistry, config);
 
   let cachedInstructions: string | null = null;
 
   const refreshInstructions = async (): Promise<string> => {
     const profile = await buildWarmProfile(store);
     const block = formatWarmProfileBlock(profile);
-    cachedInstructions = buildSessionInstructions(block);
+    cachedInstructions = buildSessionInstructions(block, {
+      morningHour: config.REMINDER_MORNING_HOUR,
+      afternoonHour: config.REMINDER_AFTERNOON_HOUR,
+      eveningHour: config.REMINDER_EVENING_HOUR,
+      nightHour: config.REMINDER_NIGHT_HOUR,
+      timeZone: config.USER_TIMEZONE,
+    });
     return cachedInstructions;
   };
 
@@ -38,6 +57,7 @@ async function main(): Promise<void> {
   for (const tool of createMemoryTools({
     store,
     retriever,
+    defaultTimeZone: config.USER_TIMEZONE,
     onProfileMaybeChanged: async () => {
       cachedInstructions = null;
     },
@@ -53,10 +73,15 @@ async function main(): Promise<void> {
   for (const tool of createSearchTools(brave)) {
     tools.register(tool);
   }
+  for (const tool of createReminderTools({ store: reminderStore, config })) {
+    tools.register(tool);
+  }
 
   const voice = new VoiceGateway({
     config,
     tools,
+    clientRegistry,
+    reminderStore,
     getInstructions: async () => {
       if (!cachedInstructions) {
         return refreshInstructions();
@@ -66,23 +91,58 @@ async function main(): Promise<void> {
   });
 
   const server = createServer((req, res) => {
-    if (req.url === "/health") {
+    const url = req.url ?? "/";
+
+    if (req.method === "OPTIONS" && url.startsWith("/debug")) {
+      applyCors(res);
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    if (url === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: true, service: "crea-jarvis2-core" }));
       return;
     }
+
+    if (url === "/debug/reminders" && req.method === "GET") {
+      void (async () => {
+        try {
+          const rows = await reminderStore.listForDebug(100);
+          applyCors(res);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(
+            JSON.stringify({
+              ok: true,
+              reminders: rows.map(toPublic),
+              count: rows.length,
+            }),
+          );
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          applyCors(res);
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: message }));
+        }
+      })();
+      return;
+    }
+
     res.writeHead(404);
     res.end("Not found");
   });
 
   voice.attach(server);
+  poller.start();
 
   server.listen(config.PORT, "0.0.0.0", () => {
-    console.log(`[core] listening on :${config.PORT} (health + /voice)`);
+    console.log(`[core] listening on :${config.PORT} (health + /voice + /debug)`);
   });
 
   const shutdown = async () => {
     console.log("[core] shutting down");
+    poller.stop();
     server.close();
     await prisma.$disconnect();
     process.exit(0);

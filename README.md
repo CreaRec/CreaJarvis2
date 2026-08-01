@@ -4,9 +4,10 @@ Personal Jarvis MVP: OpenAI Realtime voice, Prisma + Postgres/pgvector memory, D
 
 ## Architecture
 
-- **Docker Compose:** `postgres` (pgvector) + `core` (Realtime, tools, memory, Voice Gateway)
+- **Docker Compose:** `postgres` (pgvector) + `core` (Realtime, tools, memory, reminders, Voice Gateway)
 - **Mac host (temp):** `npm run web-ptt` — browser push-to-talk at http://127.0.0.1:5173
 - **Memory:** warm profile in session instructions; cold facts in Postgres; search via pgvector (`MemoryRetriever` ready for future Qdrant)
+- **Reminders:** Postgres `reminders` + poller; delivery as bottom toast in web-ptt (`reminder.fired`); Debug · Reminders table via `GET /debug/reminders` (see [ADR-002](docs/ADR-002-reminders.md))
 
 ## Quick start
 

@@ -2,6 +2,8 @@ import type { IncomingMessage } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 import type { AppConfig } from "../config.js";
 import { RealtimeClient } from "../realtime/client.js";
+import type { ClientRegistry } from "../reminders/client-registry.js";
+import { toPublic, type ReminderStore } from "../reminders/store.js";
 import type { ToolGateway } from "../tools/gateway.js";
 
 export type ClientOutbound =
@@ -10,7 +12,15 @@ export type ClientOutbound =
   | { type: "transcript"; role: "user" | "assistant"; text: string }
   | { type: "response.done" }
   | { type: "tool.status"; tool: string; ok: boolean }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | {
+      type: "reminder.fired";
+      reminder: ReturnType<typeof toPublic>;
+    }
+  | {
+      type: "reminder.missed_digest";
+      reminders: Array<ReturnType<typeof toPublic>>;
+    };
 
 type ClientInbound =
   | { type: "session.start" }
@@ -23,6 +33,8 @@ export interface VoiceGatewayDeps {
   config: AppConfig;
   tools: ToolGateway;
   getInstructions: () => Promise<string>;
+  clientRegistry: ClientRegistry;
+  reminderStore: ReminderStore;
 }
 
 export class VoiceGateway {
@@ -37,11 +49,24 @@ export class VoiceGateway {
     });
   }
 
+  private async flushMissed(socket: WebSocket): Promise<void> {
+    const missed = await this.deps.reminderStore.listMissed(50);
+    if (missed.length === 0) return;
+    this.deps.clientRegistry.send(socket, {
+      type: "reminder.missed_digest",
+      reminders: missed.map(toPublic),
+    });
+    for (const r of missed) {
+      await this.deps.reminderStore.completeDelivery(r.id);
+    }
+  }
+
   private async handleConnection(
     socket: WebSocket,
     _req: IncomingMessage,
   ): Promise<void> {
     let realtime: RealtimeClient | null = null;
+    this.deps.clientRegistry.add(socket);
 
     const send = (msg: ClientOutbound) => {
       if (socket.readyState === WebSocket.OPEN) {
@@ -66,7 +91,6 @@ export class VoiceGateway {
           const hasFunctionCall = (response?.output ?? []).some(
             (item) => item.type === "function_call",
           );
-          // Only signal completion for a final model turn (not a tool-call turn).
           if (!hasFunctionCall) {
             send({ type: "response.done" });
           }
@@ -74,6 +98,11 @@ export class VoiceGateway {
       });
       await realtime.connect();
       send({ type: "ready" });
+      try {
+        await this.flushMissed(socket);
+      } catch (err) {
+        console.error("[voice-gateway] missed flush failed:", err);
+      }
       return realtime;
     };
 
@@ -120,6 +149,7 @@ export class VoiceGateway {
     });
 
     socket.on("close", () => {
+      this.deps.clientRegistry.remove(socket);
       void realtime?.close();
     });
   }

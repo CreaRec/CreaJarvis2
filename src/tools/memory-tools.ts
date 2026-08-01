@@ -19,8 +19,10 @@ const saveSchema = z.object({
 export function createMemoryTools(deps: {
   store: MemoryStore;
   retriever: MemoryRetriever;
+  defaultTimeZone?: string;
   onProfileMaybeChanged?: () => void | Promise<void>;
 }): ToolDefinition[] {
+  const defaultTz = deps.defaultTimeZone ?? "America/Chicago";
   return [
     {
       name: "memory_search",
@@ -128,7 +130,7 @@ export function createMemoryTools(deps: {
           return { ok: false, error: parsed.error.message };
         }
         const now = new Date();
-        const timeZone = parsed.data.timeZone ?? "America/Chicago";
+        const timeZone = parsed.data.timeZone ?? defaultTz;
         return {
           ok: true,
           data: {

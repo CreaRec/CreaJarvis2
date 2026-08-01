@@ -20,7 +20,7 @@ Build a personal Jarvis from scratch (no upstream fork). First slice: talk via O
 PTT client ↔ `ws://localhost:8787/voice`:
 
 - inbound: `session.start` | `audio.append` | `audio.commit` | `session.end` | `text`
-- outbound: `ready` | `audio.delta` | `transcript` | `tool.status` | `error`
+- outbound: `ready` | `audio.delta` | `transcript` | `tool.status` | `error` | `reminder.fired` | `reminder.missed_digest` (reminders: see ADR-002)
 
 Realtime session uses manual turn detection (`turn_detection: null`) so commit happens on button release / toggle.
 
@@ -42,7 +42,7 @@ Future `QdrantRetriever` returns ids only; facts still hydrate from Postgres. Sw
 
 ### 5. Tools
 
-Typed tools only: `memory_search`, `memory_save`, `get_current_time`. Executed on Core; results returned as Realtime `function_call_output`. No open shell tool.
+Typed tools only: `memory_search`, `memory_save`, `get_current_time`, search tools, and reminder tools (ADR-002). Executed on Core; results returned as Realtime `function_call_output`. No open shell tool.
 
 ## Consequences
 
