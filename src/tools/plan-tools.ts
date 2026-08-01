@@ -65,21 +65,32 @@ export function createPlanTools(deps: {
     {
       name: "plan_set",
       description:
-        "Replace the day plan for a local date (YYYY-MM-DD). Items with scheduled_at get a linked reminder.",
+        "Replace the day plan for a local YYYY-MM-DD. Default date=today (never tomorrow unless the user said tomorrow). Item text: keep the user's wording; raw_utterance=original user phrase. scheduled_at items get a linked reminder.",
       parameters: {
         type: "object",
         properties: {
-          date: { type: "string", description: "YYYY-MM-DD local; default today" },
+          date: {
+            type: "string",
+            description:
+              "YYYY-MM-DD local. Omit for today. «сегодня» → today only; «завтра» → tomorrow.",
+          },
           items: {
             type: "array",
             items: {
               type: "object",
               properties: {
-                text: { type: "string" },
+                text: {
+                  type: "string",
+                  description:
+                    "Plan item text; preserve user's words (do not paraphrase).",
+                },
                 scheduled_at: { type: "string" },
                 remind: { type: "boolean" },
                 recurrence: { type: "object" },
-                raw_utterance: { type: "string" },
+                raw_utterance: {
+                  type: "string",
+                  description: "Exact user utterance for this item",
+                },
               },
               required: ["text"],
             },
@@ -130,21 +141,32 @@ export function createPlanTools(deps: {
     {
       name: "plan_add",
       description:
-        "Add one or more items to a day plan. Use for «добавь в план…». Timed items create linked reminders.",
+        "Add items to a day plan. «на сегодня/вечером» → omit date or pass today's YYYY-MM-DD (not tomorrow). Keep item text faithful to the user; raw_utterance=original phrase. Timed items create linked reminders.",
       parameters: {
         type: "object",
         properties: {
-          date: { type: "string" },
+          date: {
+            type: "string",
+            description:
+              "YYYY-MM-DD local. Omit for today. Never use tomorrow for «сегодня».",
+          },
           items: {
             type: "array",
             items: {
               type: "object",
               properties: {
-                text: { type: "string" },
+                text: {
+                  type: "string",
+                  description:
+                    "Preserve user's wording (e.g. «свадьба у Вити», not a rewrite).",
+                },
                 scheduled_at: { type: "string" },
                 remind: { type: "boolean" },
                 recurrence: { type: "object" },
-                raw_utterance: { type: "string" },
+                raw_utterance: {
+                  type: "string",
+                  description: "Exact user utterance",
+                },
               },
               required: ["text"],
             },
@@ -195,11 +217,15 @@ export function createPlanTools(deps: {
     {
       name: "plan_get",
       description:
-        "Get day plan(s). Pass date for one day, or from+to for a range. Default: today.",
+        "Get day plan(s). «что сегодня / планы на сегодня» → omit date or pass TODAY from get_current_time — never tomorrow. «завтра» → tomorrow's YYYY-MM-DD. from+to for a range. Report the returned `date` and item texts as-is.",
       parameters: {
         type: "object",
         properties: {
-          date: { type: "string" },
+          date: {
+            type: "string",
+            description:
+              "YYYY-MM-DD. Omit for today. Do not pass tomorrow unless the user said tomorrow.",
+          },
           from: { type: "string" },
           to: { type: "string" },
         },

@@ -41,6 +41,9 @@ describe("buildSessionInstructions", () => {
     expect(text).toContain("Day plans:");
     expect(text).toContain("plan_* tools");
     expect(text).toContain("NOT memory_save");
+    expect(text).toContain("Never use tomorrow");
+    expect(text).toContain("raw_utterance");
+    expect(text).toContain("do not rewrite");
   });
 
   it("falls back to Chicago defaults", () => {
@@ -49,5 +52,6 @@ describe("buildSessionInstructions", () => {
     expect(text).toContain("today at 10:00 / 14:00 / 18:00 / 21:00");
     expect(text).toContain("warm");
     expect(text).toContain("plan_get");
+    expect(text).toContain("CRITICAL date mapping");
   });
 });
