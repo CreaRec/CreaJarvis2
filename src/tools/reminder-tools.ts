@@ -4,7 +4,7 @@ import {
   formatLocal,
   zonedLocalToUtc,
   zonedParts,
-} from "../reminders/local-time.js";
+} from "../utils/time/index.js";
 import { toPublic, type ReminderStore } from "../reminders/store.js";
 import type { Recurrence } from "../reminders/types.js";
 import { type ToolDefinition, z } from "./gateway.js";

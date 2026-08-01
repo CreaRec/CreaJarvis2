@@ -1,6 +1,6 @@
 import type { AppConfig } from "../config.js";
 import type { ClientRegistry } from "./client-registry.js";
-import { shiftOutOfQuietHours } from "./local-time.js";
+import { shiftOutOfQuietHours } from "./quiet-hours.js";
 import { toPublic, type ReminderStore } from "./store.js";
 
 export class ReminderPoller {

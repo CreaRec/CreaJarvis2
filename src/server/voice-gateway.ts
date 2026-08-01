@@ -2,6 +2,8 @@ import type { IncomingMessage } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 import type { AppConfig } from "../config.js";
 import { RealtimeClient } from "../realtime/client.js";
+import { todayLocalDate } from "../utils/time/index.js";
+import { toItemPublic, type PlanStore } from "../plans/store.js";
 import type { ClientRegistry } from "../reminders/client-registry.js";
 import { toPublic, type ReminderStore } from "../reminders/store.js";
 import type { ToolGateway } from "../tools/gateway.js";
@@ -20,6 +22,11 @@ export type ClientOutbound =
   | {
       type: "reminder.missed_digest";
       reminders: Array<ReturnType<typeof toPublic>>;
+    }
+  | {
+      type: "plan.today_digest";
+      date: string;
+      items: Array<ReturnType<typeof toItemPublic>>;
     };
 
 type ClientInbound =
@@ -35,6 +42,7 @@ export interface VoiceGatewayDeps {
   getInstructions: () => Promise<string>;
   clientRegistry: ClientRegistry;
   reminderStore: ReminderStore;
+  planStore: PlanStore;
 }
 
 export class VoiceGateway {
@@ -59,6 +67,17 @@ export class VoiceGateway {
     for (const r of missed) {
       await this.deps.reminderStore.completeDelivery(r.id);
     }
+  }
+
+  private async flushTodayPlan(socket: WebSocket): Promise<void> {
+    const day = await this.deps.planStore.listOpenToday();
+    const open = day.items.filter((i) => i.status === "open");
+    if (open.length === 0) return;
+    this.deps.clientRegistry.send(socket, {
+      type: "plan.today_digest",
+      date: day.localDate || todayLocalDate(this.deps.config.USER_TIMEZONE),
+      items: open.map(toItemPublic),
+    });
   }
 
   private async handleConnection(
@@ -102,6 +121,11 @@ export class VoiceGateway {
         await this.flushMissed(socket);
       } catch (err) {
         console.error("[voice-gateway] missed flush failed:", err);
+      }
+      try {
+        await this.flushTodayPlan(socket);
+      } catch (err) {
+        console.error("[voice-gateway] plan digest failed:", err);
       }
       return realtime;
     };

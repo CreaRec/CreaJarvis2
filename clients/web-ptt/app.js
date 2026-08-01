@@ -23,6 +23,10 @@ const els = {
   debugRefreshBtn: document.getElementById("debugRefreshBtn"),
   debugRemindersMeta: document.getElementById("debugRemindersMeta"),
   debugRemindersTable: document.getElementById("debugRemindersTable"),
+  debugPlansDetails: document.getElementById("debugPlansDetails"),
+  debugPlansRefreshBtn: document.getElementById("debugPlansRefreshBtn"),
+  debugPlansMeta: document.getElementById("debugPlansMeta"),
+  debugPlansTable: document.getElementById("debugPlansTable"),
 };
 
 function setTextEnabled(enabled) {
@@ -132,14 +136,50 @@ async function refreshDebugReminders() {
   }
 }
 
+async function refreshDebugPlans() {
+  if (!els.debugPlansDetails?.open) return;
+  const base = httpBaseFromWsUrl(els.wsUrl.value.trim());
+  try {
+    const res = await fetch(`${base}/debug/plans`);
+    const json = await res.json();
+    if (!json.ok) {
+      els.debugPlansMeta.textContent = `error: ${json.error ?? res.status}`;
+      return;
+    }
+    const rows = json.items ?? [];
+    els.debugPlansMeta.textContent = `${rows.length} rows · ${new Date().toLocaleTimeString()}`;
+    const tbody = els.debugPlansTable.querySelector("tbody");
+    tbody.innerHTML = rows
+      .map((r) => {
+        return `<tr>
+          <td>${escapeHtml(r.date ?? "—")}</td>
+          <td>${escapeHtml(r.status)}</td>
+          <td>${escapeHtml(r.scheduled_at_local ?? "—")}</td>
+          <td class="text-cell">${escapeHtml(r.text)}</td>
+          <td>${r.has_reminder ? "yes" : "—"}</td>
+          <td title="${escapeHtml(r.id)}">${escapeHtml(shortId(r.id))}</td>
+        </tr>`;
+      })
+      .join("");
+  } catch (err) {
+    els.debugPlansMeta.textContent = `fetch failed: ${String(err)}`;
+  }
+}
+
+async function refreshAllDebug() {
+  await Promise.all([refreshDebugReminders(), refreshDebugPlans()]);
+}
+
 function syncDebugTimer() {
   if (debugTimer) {
     clearInterval(debugTimer);
     debugTimer = null;
   }
-  if (els.debugRemindersDetails?.open) {
-    void refreshDebugReminders();
-    debugTimer = setInterval(() => void refreshDebugReminders(), DEBUG_REFRESH_MS);
+  const anyOpen =
+    els.debugRemindersDetails?.open || els.debugPlansDetails?.open;
+  if (anyOpen) {
+    void refreshAllDebug();
+    debugTimer = setInterval(() => void refreshAllDebug(), DEBUG_REFRESH_MS);
   }
 }
 
@@ -344,7 +384,7 @@ function connect() {
         const r = msg.reminder;
         showToast("Напоминание", r?.text ?? "", r?.fire_at_local ?? "");
         log(`reminder.fired: ${r?.text ?? "?"}`);
-        void refreshDebugReminders();
+        void refreshAllDebug();
         break;
       }
       case "reminder.missed_digest": {
@@ -358,7 +398,25 @@ function connect() {
           "",
         );
         log(`reminder.missed_digest: ${list.length}`);
-        void refreshDebugReminders();
+        void refreshAllDebug();
+        break;
+      }
+      case "plan.today_digest": {
+        const list = msg.items ?? [];
+        const lines = list
+          .map((i) =>
+            i.scheduled_at_local
+              ? `• ${i.text} (${i.scheduled_at_local})`
+              : `• ${i.text}`,
+          )
+          .join("\n");
+        showToast(
+          "План на сегодня",
+          list.length === 0 ? "Пусто" : `${msg.date ?? ""}\n${lines}`,
+          "",
+        );
+        log(`plan.today_digest: ${list.length}`);
+        void refreshAllDebug();
         break;
       }
       case "error":
@@ -397,7 +455,13 @@ els.textForm.addEventListener("submit", (e) => {
 els.debugRefreshBtn?.addEventListener("click", () => {
   void refreshDebugReminders();
 });
+els.debugPlansRefreshBtn?.addEventListener("click", () => {
+  void refreshDebugPlans();
+});
 els.debugRemindersDetails?.addEventListener("toggle", () => {
+  syncDebugTimer();
+});
+els.debugPlansDetails?.addEventListener("toggle", () => {
   syncDebugTimer();
 });
 syncDebugTimer();

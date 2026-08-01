@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WebSocket } from "ws";
 import type { AppConfig } from "../config.js";
+import { zonedLocalToUtc } from "../utils/time/index.js";
 import { ClientRegistry } from "./client-registry.js";
-import { zonedLocalToUtc } from "./local-time.js";
 import { ReminderPoller } from "./poller.js";
 import type { ReminderStore } from "./store.js";
 import type { ReminderRecord } from "./types.js";

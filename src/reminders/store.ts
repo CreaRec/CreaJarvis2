@@ -4,7 +4,7 @@ import {
   type ReminderStatus as PrismaStatus,
 } from "@prisma/client";
 import type { Embedder } from "../memory/embedder.js";
-import { formatLocal } from "./local-time.js";
+import { formatLocal } from "../utils/time/index.js";
 import { nextFireAt } from "./recurrence.js";
 import type {
   NewReminder,

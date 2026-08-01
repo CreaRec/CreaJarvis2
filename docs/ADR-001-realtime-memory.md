@@ -20,7 +20,7 @@ Build a personal Jarvis from scratch (no upstream fork). First slice: talk via O
 PTT client ↔ `ws://localhost:8787/voice`:
 
 - inbound: `session.start` | `audio.append` | `audio.commit` | `session.end` | `text`
-- outbound: `ready` | `audio.delta` | `transcript` | `tool.status` | `error` | `reminder.fired` | `reminder.missed_digest` (reminders: see ADR-002)
+- outbound: `ready` | `audio.delta` | `transcript` | `tool.status` | `error` | `reminder.fired` | `reminder.missed_digest` (reminders: ADR-002) | `plan.today_digest` (day plans: ADR-003)
 
 Realtime session uses manual turn detection (`turn_detection: null`) so commit happens on button release / toggle.
 

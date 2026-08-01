@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { zonedLocalToUtc, zonedParts } from "./local-time.js";
+import { zonedLocalToUtc, zonedParts } from "../utils/time/index.js";
 import { nextFireAt } from "./recurrence.js";
 
 const TZ = "America/Chicago";

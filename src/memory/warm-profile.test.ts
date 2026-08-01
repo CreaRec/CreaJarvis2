@@ -38,6 +38,9 @@ describe("buildSessionInstructions", () => {
     expect(text).toContain("User timezone: Europe/Moscow");
     expect(text).toContain("today at 9:00 / 13:00 / 19:00 / 22:00");
     expect(text).toContain("reminder_* tools");
+    expect(text).toContain("Day plans:");
+    expect(text).toContain("plan_* tools");
+    expect(text).toContain("NOT memory_save");
   });
 
   it("falls back to Chicago defaults", () => {
@@ -45,5 +48,6 @@ describe("buildSessionInstructions", () => {
     expect(text).toContain("User timezone: America/Chicago");
     expect(text).toContain("today at 10:00 / 14:00 / 18:00 / 21:00");
     expect(text).toContain("warm");
+    expect(text).toContain("plan_get");
   });
 });

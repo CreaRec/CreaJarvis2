@@ -77,3 +77,41 @@ model Reminder {
   @@index([fireAt])
   @@map("reminders")
 }
+
+enum PlanItemStatus {
+  open
+  done
+  cancelled
+}
+
+model DayPlan {
+  id        String     @id @default(uuid()) @db.Uuid
+  localDate String
+  timezone  String
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  items     PlanItem[]
+
+  @@unique([localDate])
+  @@map("day_plans")
+}
+
+model PlanItem {
+  id           String         @id @default(uuid()) @db.Uuid
+  planId       String         @db.Uuid
+  plan         DayPlan        @relation(fields: [planId], references: [id], onDelete: Cascade)
+  text         String
+  status       PlanItemStatus @default(open)
+  sortOrder    Int            @default(0)
+  scheduledAt  DateTime?
+  reminderId   String?        @db.Uuid
+  recurrence   Json?
+  rawUtterance String?
+  embedding    Unsupported("vector(1536)")?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@index([planId, status, sortOrder])
+  @@index([scheduledAt])
+  @@map("plan_items")
+}

@@ -2,7 +2,7 @@ import {
   addDaysLocal,
   localDateString,
   zonedParts,
-} from "./local-time.js";
+} from "../utils/time/index.js";
 import type { Recurrence } from "./types.js";
 
 function pastUntil(next: Date, timeZone: string, untilDate?: string): boolean {

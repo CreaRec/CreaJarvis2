@@ -9,12 +9,14 @@ import {
   buildWarmProfile,
   formatWarmProfileBlock,
 } from "../memory/warm-profile.js";
+import { PlanStore, toItemPublic } from "../plans/store.js";
 import { ClientRegistry } from "../reminders/client-registry.js";
 import { ReminderPoller } from "../reminders/poller.js";
 import { ReminderStore, toPublic } from "../reminders/store.js";
 import { BraveClient } from "../search/brave-client.js";
 import { ToolGateway } from "../tools/gateway.js";
 import { createMemoryTools } from "../tools/memory-tools.js";
+import { createPlanTools } from "../tools/plan-tools.js";
 import { createReminderTools } from "../tools/reminder-tools.js";
 import { createSearchTools } from "../tools/search-tools.js";
 import { VoiceGateway } from "./voice-gateway.js";
@@ -35,6 +37,12 @@ async function main(): Promise<void> {
     embedder,
   });
   const reminderStore = new ReminderStore(prisma, embedder);
+  const planStore = new PlanStore(
+    prisma,
+    reminderStore,
+    config.USER_TIMEZONE,
+    embedder,
+  );
   const clientRegistry = new ClientRegistry();
   const poller = new ReminderPoller(reminderStore, clientRegistry, config);
 
@@ -76,12 +84,16 @@ async function main(): Promise<void> {
   for (const tool of createReminderTools({ store: reminderStore, config })) {
     tools.register(tool);
   }
+  for (const tool of createPlanTools({ store: planStore, config })) {
+    tools.register(tool);
+  }
 
   const voice = new VoiceGateway({
     config,
     tools,
     clientRegistry,
     reminderStore,
+    planStore,
     getInstructions: async () => {
       if (!cachedInstructions) {
         return refreshInstructions();
@@ -117,6 +129,32 @@ async function main(): Promise<void> {
               ok: true,
               reminders: rows.map(toPublic),
               count: rows.length,
+            }),
+          );
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          applyCors(res);
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: message }));
+        }
+      })();
+      return;
+    }
+
+    if (url === "/debug/plans" && req.method === "GET") {
+      void (async () => {
+        try {
+          const items = await planStore.listForDebug(100);
+          applyCors(res);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(
+            JSON.stringify({
+              ok: true,
+              items: items.map((i) => ({
+                ...toItemPublic(i),
+                date: i.localDate,
+              })),
+              count: items.length,
             }),
           );
         } catch (err) {

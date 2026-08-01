@@ -1,9 +1,14 @@
 import type { WebSocket } from "ws";
+import type { PlanItemPublic } from "../plans/types.js";
 import type { ReminderPublic } from "./types.js";
 
-export type ReminderClientEvent =
+export type ClientEvent =
   | { type: "reminder.fired"; reminder: ReminderPublic }
-  | { type: "reminder.missed_digest"; reminders: ReminderPublic[] };
+  | { type: "reminder.missed_digest"; reminders: ReminderPublic[] }
+  | { type: "plan.today_digest"; date: string; items: PlanItemPublic[] };
+
+/** @deprecated use ClientEvent */
+export type ReminderClientEvent = ClientEvent;
 
 export class ClientRegistry {
   private readonly clients = new Set<WebSocket>();
@@ -20,7 +25,7 @@ export class ClientRegistry {
     return this.clients.size > 0;
   }
 
-  broadcast(event: ReminderClientEvent): number {
+  broadcast(event: ClientEvent): number {
     const payload = JSON.stringify(event);
     let sent = 0;
     for (const socket of this.clients) {
@@ -32,7 +37,7 @@ export class ClientRegistry {
     return sent;
   }
 
-  send(socket: WebSocket, event: ReminderClientEvent): boolean {
+  send(socket: WebSocket, event: ClientEvent): boolean {
     if (socket.readyState !== 1) return false;
     socket.send(JSON.stringify(event));
     return true;
