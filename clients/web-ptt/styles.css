@@ -96,6 +96,18 @@ button {
   background: #242a36;
   color: var(--text);
   padding: 0.55rem 0.9rem;
+  transition: background 0.12s ease, border-color 0.12s ease, transform 0.08s ease;
+}
+
+button:hover:not(:disabled) {
+  background: #2a3140;
+  border-color: #3a4558;
+}
+
+button:active:not(:disabled) {
+  background: #323a4a;
+  border-color: #4a5a70;
+  transform: translateY(1px);
 }
 
 button:disabled {
