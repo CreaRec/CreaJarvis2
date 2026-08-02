@@ -14,6 +14,7 @@ from jarvis_client.ack import RealtimeAckPlayer
 from jarvis_client.audio_io import AudioIO, pcm16_bytes_to_b64, rms_int16
 from jarvis_client.fsm import State, VoiceFsm
 from jarvis_client.gateway import GatewayClient, ResponseDoneWaiter
+from jarvis_client.goodbye import is_goodbye_utterance
 from jarvis_client import protocol as proto
 from jarvis_client.wake import (
     CompositeWake,
@@ -79,6 +80,7 @@ class SessionController:
 
         self._ack_thread: threading.Thread | None = None
         self._ws_connected = False
+        self._end_after_goodbye = False
 
     def log(self, msg: str) -> None:
         self._on_log(msg)
@@ -143,6 +145,7 @@ class SessionController:
 
     def _end_session(self) -> None:
         self.log("session.end")
+        self._end_after_goodbye = False
         self.gateway.end_session()
         self.audio.clear_playback()
 
@@ -199,12 +202,15 @@ class SessionController:
             self.log("response.done")
             self.done_waiter.notify()
             self.fsm.on_response_done()
-            # drain playback then armed
+            # drain playback then armed (or idle after goodbye)
             threading.Thread(target=self._after_response_playback, daemon=True).start()
         elif t == "transcript":
             role = msg.get("role", "?")
             text = msg.get("text", "")
             self.log(f"{role}: {text}")
+            if role == "user" and isinstance(text, str) and is_goodbye_utterance(text):
+                self._end_after_goodbye = True
+                self.log("goodbye phrase — will end session after reply")
         elif t == "error":
             self.log(f"error: {msg.get('message')}")
         elif t == "reminder.fired":
@@ -230,6 +236,10 @@ class SessionController:
 
     def _after_response_playback(self) -> None:
         self.audio.wait_playback_idle(120.0)
+        if self._end_after_goodbye:
+            self.log("goodbye — session.end now")
+            self.fsm.force_idle()
+            return
         self.fsm.on_playback_drained()
 
     def _toast(self, title: str, body: str, meta: str) -> None:

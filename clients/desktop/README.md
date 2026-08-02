@@ -37,6 +37,7 @@ python -m jarvis_client
 3. Core plays **«Я тут»** (`ack.play`).
 4. Speak a command (silence ends the turn → `audio.commit`).
 5. After the reply, a **5 minute** armed window allows follow-ups without wake; then `session.end`.
+6. Or say **«Спасибо Джарвис»** / **«Пока Джарвис»** — after the short reply, session ends immediately (no 5 min wait).
 
 Half-duplex: mic is not streamed to Realtime while ack/assistant audio plays.
 
