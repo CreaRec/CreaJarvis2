@@ -5,7 +5,7 @@ Personal Jarvis MVP: OpenAI Realtime voice, Prisma + Postgres/pgvector memory, D
 ## Architecture
 
 - **Docker Compose:** `postgres` (pgvector) + `core` (Realtime, tools, memory, reminders, Voice Gateway)
-- **Mac / Pi host:** `clients/desktop` — Python NiceGUI voice client (wake → ack → listen); see [clients/desktop/README.md](clients/desktop/README.md)
+- **Mac / Pi / Linux host:** `clients/desktop` — Python PySide6 native voice client (wake → ack → listen); see [clients/desktop/README.md](clients/desktop/README.md)
 - **Memory:** warm profile in session instructions; cold facts in Postgres; search via pgvector (`MemoryRetriever` ready for future Qdrant)
 - **Reminders:** Postgres `reminders` + poller; delivery as toast in the desktop client (`reminder.fired`); Debug · Reminders via `GET /debug/reminders` (see [ADR-002](docs/ADR-002-reminders.md))
 - **Day plans:** Postgres `day_plans` / `plan_items`; timed items link to reminders; Connect toast `plan.today_digest`; Debug · Plans via `GET /debug/plans` (see [ADR-003](docs/ADR-003-day-plans.md))
@@ -35,7 +35,7 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 export VOICE_GATEWAY_URL=ws://127.0.0.1:8787/voice
 python -m jarvis_client
-# open http://127.0.0.1:5173 → Connect → Wake (Space) → speak
+# native Qt window → Connect (or autoconnect) → Wake (Space) → speak
 ```
 
 Audio stays on the host. Core stays in Docker. Details: [clients/desktop/README.md](clients/desktop/README.md).

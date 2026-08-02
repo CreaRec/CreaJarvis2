@@ -13,7 +13,7 @@ Build a personal Jarvis from scratch (no upstream fork). First slice: talk via O
 
 - `postgres` (pgvector/pg16) and `core` run under Docker Compose.
 - `core` owns OpenAI API key, Realtime WebSocket, Tool Gateway, Prisma/memory.
-- Host runs a thin audio client (`clients/desktop` — Python NiceGUI; later ESP/room). Docker Desktop on Mac cannot reliably pass through audio devices.
+- Host runs a thin audio client (`clients/desktop` — Python PySide6; later ESP/room). Docker Desktop on Mac cannot reliably pass through audio devices.
 
 ### 2. Voice Gateway protocol
 
