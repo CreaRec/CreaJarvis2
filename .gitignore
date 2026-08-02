@@ -4,3 +4,7 @@ dist/
 data/
 *.log
 .DS_Store
+clients/desktop/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/

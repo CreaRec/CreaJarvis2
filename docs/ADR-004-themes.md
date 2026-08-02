@@ -28,7 +28,7 @@ Jarvis needs named, revisitable notebooks for ideas, projects, trip planning, an
 
 ### 3. Delivery / UI
 
-No Connect toast. Debug: `GET /debug/themes` + **Debug · Themes** in web-ptt.
+No Connect toast. Debug: `GET /debug/themes` + Debug · Themes in `clients/desktop`.
 
 ## Consequences
 

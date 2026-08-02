@@ -7,6 +7,11 @@ import { toItemPublic, type PlanStore } from "../plans/store.js";
 import type { ClientRegistry } from "../reminders/client-registry.js";
 import { toPublic, type ReminderStore } from "../reminders/store.js";
 import type { ToolGateway } from "../tools/gateway.js";
+import {
+  ACK_PLAY_PROMPT,
+  parseClientInbound,
+  type ClientInbound,
+} from "./voice-protocol.js";
 
 export type ClientOutbound =
   | { type: "ready" }
@@ -29,12 +34,7 @@ export type ClientOutbound =
       items: Array<ReturnType<typeof toItemPublic>>;
     };
 
-type ClientInbound =
-  | { type: "session.start" }
-  | { type: "audio.append"; audio: string }
-  | { type: "audio.commit" }
-  | { type: "session.end" }
-  | { type: "text"; text: string };
+export type { ClientInbound };
 
 export interface VoiceGatewayDeps {
   config: AppConfig;
@@ -133,17 +133,25 @@ export class VoiceGateway {
     socket.on("message", (data) => {
       void (async () => {
         try {
-          const msg = JSON.parse(data.toString()) as ClientInbound;
+          let raw: unknown;
+          try {
+            raw = JSON.parse(data.toString());
+          } catch {
+            send({ type: "error", message: "Invalid JSON" });
+            return;
+          }
+          const parsed = parseClientInbound(raw);
+          if (!parsed.ok) {
+            send({ type: "error", message: parsed.error });
+            return;
+          }
+          const msg = parsed.message;
           switch (msg.type) {
             case "session.start":
               await ensureRealtime();
               break;
             case "audio.append": {
               const rt = await ensureRealtime();
-              if (!msg.audio) {
-                send({ type: "error", message: "audio.append missing audio" });
-                break;
-              }
               rt.appendAudio(msg.audio);
               break;
             }
@@ -157,12 +165,20 @@ export class VoiceGateway {
               await rt.sendText(msg.text);
               break;
             }
+            case "ack.play": {
+              const rt = await ensureRealtime();
+              await rt.playAck(ACK_PLAY_PROMPT);
+              break;
+            }
             case "session.end":
               await realtime?.close();
               realtime = null;
               break;
-            default:
+            default: {
+              const _exhaustive: never = msg;
+              void _exhaustive;
               send({ type: "error", message: `Unknown message type` });
+            }
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);

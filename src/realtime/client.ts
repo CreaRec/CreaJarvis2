@@ -146,6 +146,11 @@ export class RealtimeClient {
     });
   }
 
+  /** Short spoken acknowledgment for wake UX ("Я тут"). */
+  async playAck(prompt: string): Promise<void> {
+    await this.sendText(prompt);
+  }
+
   async close(): Promise<void> {
     this.closing = true;
     if (!this.ws) return;

@@ -13,16 +13,16 @@ Build a personal Jarvis from scratch (no upstream fork). First slice: talk via O
 
 - `postgres` (pgvector/pg16) and `core` run under Docker Compose.
 - `core` owns OpenAI API key, Realtime WebSocket, Tool Gateway, Prisma/memory.
-- Host runs a thin audio client (`clients/web-ptt` temporarily; later desktop/room). Docker Desktop on Mac cannot reliably pass through audio devices.
+- Host runs a thin audio client (`clients/desktop` — Python NiceGUI; later ESP/room). Docker Desktop on Mac cannot reliably pass through audio devices.
 
 ### 2. Voice Gateway protocol
 
-PTT client ↔ `ws://localhost:8787/voice`:
+Desktop client ↔ `ws://localhost:8787/voice`:
 
-- inbound: `session.start` | `audio.append` | `audio.commit` | `session.end` | `text`
+- inbound: `session.start` | `audio.append` | `audio.commit` | `session.end` | `text` | `ack.play`
 - outbound: `ready` | `audio.delta` | `transcript` | `tool.status` | `error` | `reminder.fired` | `reminder.missed_digest` (reminders: ADR-002) | `plan.today_digest` (day plans: ADR-003)
 
-Realtime session uses manual turn detection (`turn_detection: null`) so commit happens on button release / toggle.
+Realtime session uses manual turn detection (`turn_detection: null`); the desktop client commits on local silence EOS after wake. `ack.play` triggers a short «Я тут» spoken acknowledgment.
 
 ### 3. Prisma + pgvector as cold store
 
@@ -50,6 +50,6 @@ Typed tools only: `memory_search`, `memory_timeline`, `memory_save`, `get_curren
 ## Consequences
 
 - Local Node+Postgres without Docker is not the supported dev path.
-- PTT requires `sox` (`rec`) on the Mac host.
+- Desktop client requires host mic access (`sounddevice`) and Python 3.11+.
 - Vector column is outside Prisma's typed API; raw SQL is intentional for ANN.
 - Adding Qdrant later does not require migrating fact text out of Postgres.

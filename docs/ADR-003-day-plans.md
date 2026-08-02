@@ -28,11 +28,11 @@ Session instructions separate memory / reminders / day plans.
 
 ### 4. Connect digest
 
-On Voice Gateway `ready`, if there are open items for today, send `plan.today_digest` for a web-ptt toast. No separate plan poller.
+On Voice Gateway `ready`, if there are open items for today, send `plan.today_digest` for a desktop-client toast. No separate plan poller.
 
 ### 5. Debug
 
-`GET /debug/plans` + **Debug · Plans** collapsible table in web-ptt.
+`GET /debug/plans` + Debug · Plans table in `clients/desktop`.
 
 ## Consequences
 

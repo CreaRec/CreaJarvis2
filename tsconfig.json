@@ -14,6 +14,6 @@
     "declaration": true,
     "sourceMap": true
   },
-  "include": ["src/**/*", "scripts/**/*", "clients/**/*"],
+  "include": ["src/**/*", "scripts/**/*"],
   "exclude": ["node_modules", "dist"]
 }

@@ -13,7 +13,6 @@
     "db:migrate": "prisma migrate deploy",
     "db:generate": "prisma generate",
     "memory:import": "tsx scripts/import-memory.ts",
-    "web-ptt": "node clients/web-ptt/serve.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "smoke:text": "tsx scripts/smoke-text.ts",

@@ -5,7 +5,7 @@
 
 ## Context
 
-Jarvis needs timed reminders with natural-language scheduling, list/search/cancel/snooze, and a simple delivery path for the temporary web-ptt client — without introducing Temporal or a separate worker fleet.
+Jarvis needs timed reminders with natural-language scheduling, list/search/cancel/snooze, and a simple delivery path for the desktop voice client — without introducing Temporal or a separate worker fleet.
 
 ## Decision
 
@@ -32,7 +32,7 @@ The Realtime model resolves relative phrases using `get_current_time` and `USER_
 
 ### 4. Web toast + debug UI
 
-- `clients/web-ptt` shows bottom toasts on reminder events.
+- `clients/desktop` shows toasts/notifications on reminder events.
 - Collapsible **Debug · Reminders** table loads `GET /debug/reminders` (CORS enabled for local fetch).
 
 ### 5. Not Temporal

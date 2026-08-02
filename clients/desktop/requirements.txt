@@ -1,0 +1,8 @@
+numpy>=1.26
+sounddevice>=0.4.6
+websockets>=12.0
+nicegui>=2.0
+httpx>=0.27
+# Optional wake backends:
+# openwakeword>=0.6.0
+# tflite-runtime  # or ai-edge-litert for microWakeWord .tflite
