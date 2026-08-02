@@ -15,6 +15,11 @@ if [[ ! -d .venv ]]; then
 else
   # shellcheck disable=SC1091
   source .venv/bin/activate
+  # Ensure WebEngine (3D orb) is present for existing venvs
+  if ! python -c "from PySide6.QtWebEngineWidgets import QWebEngineView" 2>/dev/null; then
+    echo "Installing PySide6-Addons (WebGL orb)…"
+    pip install "PySide6-Addons>=6.6"
+  fi
 fi
 
 export VOICE_GATEWAY_URL="${VOICE_GATEWAY_URL:-ws://127.0.0.1:8787/voice}"

@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>J.A.R.V.I.S. Holographic Display</title>
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&display=swap");
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000000;
+    }
+    #c {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+    #overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: Orbitron, sans-serif;
+    }
+    #title {
+      color: rgba(255, 255, 255, 0.95);
+      font-size: clamp(18px, 4vw, 36px);
+      font-weight: 800;
+      letter-spacing: 0.35em;
+      text-shadow: 0 0 24px rgba(0, 229, 176, 0.85);
+      margin-left: 0.35em;
+    }
+    #subtitle {
+      margin-top: 10px;
+      color: #00cc99;
+      font-size: clamp(9px, 1.4vw, 13px);
+      letter-spacing: 0.28em;
+      opacity: 0.85;
+    }
+    #badge {
+      position: absolute;
+      left: 16px;
+      bottom: 16px;
+      padding: 8px 14px;
+      background: rgba(0, 0, 0, 0.55);
+      border-radius: 8px;
+      font-size: 10px;
+      color: #00e5b0;
+      letter-spacing: 0.2em;
+      font-family: Orbitron, sans-serif;
+    }
+    #stateTag {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      padding: 6px 12px;
+      border-radius: 16px;
+      font-size: 10px;
+      letter-spacing: 0.15em;
+      font-family: Orbitron, sans-serif;
+      border: 1px solid #00e5b0;
+      color: #00e5b0;
+      background: rgba(0, 229, 176, 0.12);
+      text-transform: uppercase;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="overlay">
+    <div id="title">J.A.R.V.I.S.</div>
+    <div id="subtitle">CREAREC INDUSTRIES</div>
+    <div id="badge">HOLOGRAPHIC DISPLAY</div>
+    <div id="stateTag">idle</div>
+  </div>
+  <script src="three.min.js"></script>
+  <script src="orb.js"></script>
+</body>
+</html>

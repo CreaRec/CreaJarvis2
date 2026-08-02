@@ -8,6 +8,7 @@ import pytest
 
 # Ensure headless Qt before importing PySide6 widgets.
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+os.environ.setdefault("JARVIS_ORB_2D", "1")
 
 pytest.importorskip("PySide6")
 
@@ -48,19 +49,25 @@ def test_signal_bridge_emits_to_slots(qapp: QApplication) -> None:
 
 def test_main_window_smoke(qapp: QApplication) -> None:
     win = MainWindow()
-    assert win.windowTitle() == "CreaJarvis Desktop"
+    assert "J.A.R.V.I.S" in win.windowTitle()
     assert win._fsm_label.text() == "idle"
-    assert win._conn_label.text() == "disconnected"
+    assert win._conn_label.text() == "OFFLINE"
     assert win._orb.state == "idle"
     # Drive bridge without connecting transport
     win.bridge.state_changed.emit("armed")
     win.bridge.toast.emit("Напоминание", "tea", "15:00")
     qapp.processEvents()
-    assert win._fsm_label.text() == "armed"
+    assert win._fsm_label.text() == "ARMED"
     assert win._orb.state == "armed"
     win.bridge.state_changed.emit("listening")
     qapp.processEvents()
     assert win._orb.state == "listening"
+    assert win._fsm_label.text() == "LISTENING"
+    # Logs go to Debug, not Main
+    win.bridge.log_line.emit("session note")
+    qapp.processEvents()
+    assert "session note" in win._debug.log.toPlainText()
+    assert "session note" not in win._chat.toPlainText()
     # Parent window is not shown in offscreen smoke; isHidden tracks setVisible.
     assert not win._toast_banner.isHidden()
     assert win._toast_banner._title.text() == "Напоминание"

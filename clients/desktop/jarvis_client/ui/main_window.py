@@ -1,20 +1,21 @@
-"""Main native window: voice UX + debug tab."""
+"""Main native window: my-jarvis-style holographic dashboard + debug/settings."""
 
 from __future__ import annotations
 
 import asyncio
 import os
-from datetime import datetime
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMainWindow,
     QPlainTextEdit,
     QPushButton,
+    QSizePolicy,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -27,14 +28,13 @@ from jarvis_client.ui.orb import OrbWidget
 from jarvis_client.ui.toast import ToastBanner, TrayNotifier
 
 DEFAULT_WS = os.environ.get("VOICE_GATEWAY_URL", "ws://127.0.0.1:8787/voice")
-_MAX_LOG_LINES = 500
 
 
 class MainWindow(QMainWindow):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("CreaJarvis Desktop")
-        self.resize(900, 720)
+        self.setWindowTitle("J.A.R.V.I.S. — CreaJarvis")
+        self.resize(1200, 780)
 
         self._controller: SessionController | None = None
         self.bridge = SignalBridge(self)
@@ -46,26 +46,73 @@ class MainWindow(QMainWindow):
         self._toast_banner = ToastBanner()
         self._tray = TrayNotifier(self)
 
-        brand = QLabel("CREAJARVIS")
-        brand.setObjectName("brandLabel")
-        brand.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # --- Header (my-jarvis style) ---
+        brand_dot_outer = QLabel()
+        brand_dot_outer.setFixedSize(40, 40)
+        brand_dot_outer.setStyleSheet(
+            "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
+            "stop:0 #00E5B0, stop:1 #00AA77); border-radius: 20px;"
+        )
+        brand_title = QLabel("J.A.R.V.I.S.")
+        brand_title.setObjectName("brandTitle")
+        brand_sub = QLabel("VOICE ASSISTANT ACTIVE")
+        brand_sub.setObjectName("brandSub")
+        brand_text = QVBoxLayout()
+        brand_text.setSpacing(0)
+        brand_text.addWidget(brand_title)
+        brand_text.addWidget(brand_sub)
 
-        self._orb = OrbWidget()
+        brand_row = QHBoxLayout()
+        brand_row.setSpacing(12)
+        brand_row.addWidget(brand_dot_outer)
+        brand_row.addLayout(brand_text)
+        brand_row.addStretch(1)
 
         self._fsm_label = QLabel("idle")
         self._fsm_label.setObjectName("fsmLabel")
         self._fsm_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self._conn_label = QLabel("disconnected")
+        self._conn_label = QLabel("OFFLINE")
         self._conn_label.setObjectName("connLabel")
+        self._conn_label.setProperty("connState", "offline")
         self._conn_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        hint = QLabel("Say «Джарвис» when a wake model is loaded, or press Wake / Space.")
-        hint.setObjectName("sectionMeta")
-        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        hint.setWordWrap(True)
+        header_right = QHBoxLayout()
+        header_right.setSpacing(10)
+        header_right.addWidget(self._fsm_label)
+        header_right.addWidget(self._conn_label)
 
-        self._wake_btn = QPushButton("Wake (Space)")
+        header = QFrame()
+        header.setObjectName("hudHeader")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(16, 10, 16, 10)
+        header_layout.addLayout(brand_row, stretch=1)
+        header_layout.addLayout(header_right)
+
+        # --- Left: holographic display ---
+        self._orb = OrbWidget(expanding=True)
+        self._orb.setMinimumHeight(420)
+        self._orb.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+        holo = QFrame()
+        holo.setObjectName("holoPanel")
+        holo_layout = QVBoxLayout(holo)
+        holo_layout.setContentsMargins(0, 0, 0, 0)
+        holo_layout.addWidget(self._orb)
+
+        # --- Right: Neural Link ---
+        neural_title = QLabel("●  NEURAL LINK")
+        neural_title.setObjectName("neuralTitle")
+
+        self._chat = QPlainTextEdit()
+        self._chat.setObjectName("neuralChat")
+        self._chat.setReadOnly(True)
+        self._chat.setPlaceholderText(
+            "Systems online.\nSay «Джарвис» or press Wake / Space."
+        )
+
+        self._wake_btn = QPushButton("WAKE")
+        self._wake_btn.setObjectName("wakeBtn")
         self._wake_btn.clicked.connect(self.do_wake)
         self._disconnect_btn = QPushButton("Disconnect")
         self._disconnect_btn.clicked.connect(self.do_disconnect)
@@ -73,15 +120,13 @@ class MainWindow(QMainWindow):
         self._connect_btn.clicked.connect(self.do_connect)
 
         btn_row = QHBoxLayout()
-        btn_row.setSpacing(10)
-        btn_row.addStretch(1)
+        btn_row.setSpacing(8)
         btn_row.addWidget(self._wake_btn)
         btn_row.addWidget(self._connect_btn)
         btn_row.addWidget(self._disconnect_btn)
-        btn_row.addStretch(1)
 
         self._text_in = QLineEdit()
-        self._text_in.setPlaceholderText("Text message")
+        self._text_in.setPlaceholderText("Speak or type a command…")
         self._text_in.returnPressed.connect(self._send_text)
         send_btn = QPushButton("Send")
         send_btn.clicked.connect(self._send_text)
@@ -89,30 +134,28 @@ class MainWindow(QMainWindow):
         text_row.addWidget(self._text_in, stretch=1)
         text_row.addWidget(send_btn)
 
-        self._log = QPlainTextEdit()
-        self._log.setObjectName("transcriptLog")
-        self._log.setReadOnly(True)
-        self._log.setMaximumBlockCount(_MAX_LOG_LINES)
-        self._log.setMinimumHeight(120)
+        neural = QFrame()
+        neural.setObjectName("holoPanel")
+        neural_layout = QVBoxLayout(neural)
+        neural_layout.setContentsMargins(14, 14, 14, 14)
+        neural_layout.setSpacing(10)
+        neural_layout.addWidget(neural_title)
+        neural_layout.addWidget(self._chat, stretch=1)
+        neural_layout.addLayout(btn_row)
+        neural_layout.addLayout(text_row)
 
-        orb_row = QHBoxLayout()
-        orb_row.addStretch(1)
-        orb_row.addWidget(self._orb)
-        orb_row.addStretch(1)
+        body = QHBoxLayout()
+        body.setSpacing(16)
+        body.addWidget(holo, stretch=6)
+        body.addWidget(neural, stretch=4)
 
         main_page = QWidget()
         main_layout = QVBoxLayout(main_page)
-        main_layout.setSpacing(8)
-        main_layout.setContentsMargins(16, 12, 16, 12)
+        main_layout.setSpacing(12)
+        main_layout.setContentsMargins(12, 8, 12, 12)
         main_layout.addWidget(self._toast_banner)
-        main_layout.addWidget(brand)
-        main_layout.addLayout(orb_row)
-        main_layout.addWidget(self._fsm_label)
-        main_layout.addWidget(self._conn_label)
-        main_layout.addWidget(hint)
-        main_layout.addLayout(btn_row)
-        main_layout.addLayout(text_row)
-        main_layout.addWidget(self._log, stretch=1)
+        main_layout.addWidget(header)
+        main_layout.addLayout(body, stretch=1)
 
         settings_page = QWidget()
         settings_layout = QVBoxLayout(settings_page)
@@ -139,6 +182,7 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence(Qt.Key.Key_Space), self, activated=self.do_wake)
 
         self._update_buttons(connected=False)
+        self._apply_conn_style("disconnected")
 
     def gateway_url(self) -> str:
         return (self._ws_input.text() or DEFAULT_WS).strip()
@@ -176,7 +220,6 @@ class MainWindow(QMainWindow):
         self.bridge.state_changed.emit("idle")
 
     def do_wake(self) -> None:
-        # Avoid Space triggering wake while typing in text fields
         focus = self.focusWidget()
         if isinstance(focus, QLineEdit) or (
             isinstance(focus, QPlainTextEdit) and not focus.isReadOnly()
@@ -194,24 +237,52 @@ class MainWindow(QMainWindow):
         if not c:
             self.bridge.log_line.emit("connect first")
             return
+        msg = (text or "").strip()
+        if msg:
+            self._append_chat("YOU", msg)
         c.send_text(text or "")
         self._text_in.clear()
 
+    def _append_chat(self, who: str, text: str) -> None:
+        self._chat.appendPlainText(f"{who}: {text}")
+
     def _on_log(self, msg: str) -> None:
-        stamp = datetime.now().strftime("%H:%M:%S")
-        self._log.appendPlainText(f"[{stamp}] {msg}")
+        self._debug.append_log(msg)
 
     def _on_state(self, state: str) -> None:
-        self._fsm_label.setText(state)
+        self._fsm_label.setText(state.upper())
         self._orb.set_state(state)
+        # Color voice-state pill like my-jarvis
+        if state == "listening":
+            color, bg = "#ff4444", "rgba(255,68,68,0.2)"
+        elif state == "speaking":
+            color, bg = "#00e5b0", "rgba(0,229,176,0.18)"
+        elif state in {"processing", "ack"}:
+            color, bg = "#ffaa00", "rgba(255,170,0,0.18)"
+        else:
+            color, bg = "#00e5b0", "rgba(0,229,176,0.12)"
+        self._fsm_label.setStyleSheet(
+            f"font-size: 11px; font-weight: 600; letter-spacing: 2px; "
+            f"padding: 6px 14px; border-radius: 16px; "
+            f"color: {color}; border: 1px solid {color}; background-color: {bg};"
+        )
 
     def _on_toast(self, title: str, body: str, meta: str) -> None:
         self._toast_banner.show_toast(title, body, meta)
         self._tray.notify(title, body)
+        self._append_chat("SYSTEM", f"{title}: {body}")
 
     def _on_connection(self, status: str) -> None:
-        self._conn_label.setText(status)
+        self._apply_conn_style(status)
         self._update_buttons(connected=status == "connected")
+
+    def _apply_conn_style(self, status: str) -> None:
+        online = status == "connected"
+        self._conn_label.setText("ONLINE" if online else "OFFLINE")
+        self._conn_label.setObjectName("connOnline" if online else "connOffline")
+        # Force stylesheet re-apply for objectName change
+        self._conn_label.style().unpolish(self._conn_label)
+        self._conn_label.style().polish(self._conn_label)
 
     def _update_buttons(self, *, connected: bool) -> None:
         self._connect_btn.setVisible(not connected)

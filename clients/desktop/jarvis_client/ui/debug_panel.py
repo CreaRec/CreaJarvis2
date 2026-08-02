@@ -1,14 +1,16 @@
-"""Debug tables for reminders / plans / themes."""
+"""Debug tables for reminders / plans / themes + session log."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime
 
 import httpx
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
+    QPlainTextEdit,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -17,6 +19,8 @@ from PySide6.QtWidgets import (
 )
 
 from jarvis_client.http_util import http_base_from_ws
+
+_MAX_LOG_LINES = 500
 
 
 def _fill_table(table: QTableWidget, columns: list[str], rows: list[dict]) -> None:
@@ -43,6 +47,15 @@ class DebugPanel(QWidget):
         super().__init__(parent)
         self._gateway_url_getter = gateway_url_getter
 
+        log_meta = QLabel("Session log")
+        log_meta.setObjectName("sectionMeta")
+        self.log = QPlainTextEdit()
+        self.log.setObjectName("transcriptLog")
+        self.log.setReadOnly(True)
+        self.log.setMaximumBlockCount(_MAX_LOG_LINES)
+        self.log.setMinimumHeight(140)
+        self.log.setPlaceholderText("Voice session events appear here…")
+
         self.rem_meta = QLabel("Reminders: —")
         self.rem_meta.setObjectName("sectionMeta")
         self.rem_table = QTableWidget(0, 4)
@@ -64,19 +77,28 @@ class DebugPanel(QWidget):
 
         refresh_btn = QPushButton("Refresh debug")
         refresh_btn.clicked.connect(self.refresh)
+        clear_log_btn = QPushButton("Clear log")
+        clear_log_btn.clicked.connect(self.log.clear)
 
         top = QHBoxLayout()
         top.addWidget(refresh_btn)
+        top.addWidget(clear_log_btn)
         top.addStretch(1)
 
         layout = QVBoxLayout(self)
         layout.addLayout(top)
+        layout.addWidget(log_meta)
+        layout.addWidget(self.log, stretch=1)
         layout.addWidget(self.rem_meta)
         layout.addWidget(self.rem_table, stretch=1)
         layout.addWidget(self.plan_meta)
         layout.addWidget(self.plan_table, stretch=1)
         layout.addWidget(self.theme_meta)
         layout.addWidget(self.theme_table, stretch=1)
+
+    def append_log(self, msg: str) -> None:
+        stamp = datetime.now().strftime("%H:%M:%S")
+        self.log.appendPlainText(f"[{stamp}] {msg}")
 
     def refresh(self) -> None:
         base = http_base_from_ws(self._gateway_url_getter())

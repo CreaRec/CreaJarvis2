@@ -7,6 +7,7 @@ import os
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+os.environ.setdefault("JARVIS_ORB_2D", "1")
 
 pytest.importorskip("PySide6")
 
@@ -14,7 +15,7 @@ from PySide6.QtGui import QPaintEvent  # noqa: E402
 from PySide6.QtCore import QRect  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from jarvis_client.ui.orb import OrbWidget, visual_for_state  # noqa: E402
+from jarvis_client.ui.orb import OrbPainterWidget, OrbWidget, visual_for_state  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -39,6 +40,7 @@ def test_visual_for_state_known_and_unknown() -> None:
 
 def test_set_state_updates_visual(qapp: QApplication) -> None:
     orb = OrbWidget()
+    assert orb.backend == "painter"
     assert orb.state == "idle"
     idle_energy = orb.visual.energy
 
@@ -53,7 +55,7 @@ def test_set_state_updates_visual(qapp: QApplication) -> None:
 
 
 def test_timer_starts_on_show_stops_on_hide(qapp: QApplication) -> None:
-    orb = OrbWidget()
+    orb = OrbPainterWidget()
     assert not orb._timer.isActive()
     orb.show()
     qapp.processEvents()
@@ -69,9 +71,16 @@ def test_timer_starts_on_show_stops_on_hide(qapp: QApplication) -> None:
     ["idle", "connecting", "armed", "ack", "processing", "listening", "speaking"],
 )
 def test_paint_event_safe_for_each_state(qapp: QApplication, state: str) -> None:
-    orb = OrbWidget()
+    orb = OrbPainterWidget()
     orb.set_state(state)
-    orb.resize(OrbWidget.ORB_SIZE, OrbWidget.ORB_SIZE)
-    # Force paint without showing (offscreen-friendly)
+    orb.resize(OrbPainterWidget.ORB_SIZE, OrbPainterWidget.ORB_SIZE)
     orb.paintEvent(QPaintEvent(QRect(0, 0, orb.width(), orb.height())))
     orb.close()
+
+
+def test_orb_web_assets_present() -> None:
+    from jarvis_client.ui import orb as orb_mod
+
+    assert orb_mod._ORB_INDEX.is_file()
+    assert (orb_mod._ORB_WEB_DIR / "orb.js").is_file()
+    assert (orb_mod._ORB_WEB_DIR / "three.min.js").is_file()

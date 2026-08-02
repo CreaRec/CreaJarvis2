@@ -40,8 +40,10 @@ export VOICE_GATEWAY_URL=ws://127.0.0.1:8787/voice
 export JARVIS_USE_OPENWAKEWORD=1
 
 python -m jarvis_client
-# opens a native Qt window (no browser)
+# opens a native Qt window with a Three.js (WebGL) cinematic orb
 ```
+
+The Main orb uses **Qt WebEngine + Three.js** when available (`PySide6-Addons`). Falls back to a 2D QPainter orb if WebEngine is missing, or when `JARVIS_ORB_2D=1` / `QT_QPA_PLATFORM=offscreen` (tests).
 
 Set `JARVIS_AUTO_CONNECT=0` to skip connecting on startup. Gateway URL can be changed under the **Settings** tab, then use **Connect** on **Main**.
 
