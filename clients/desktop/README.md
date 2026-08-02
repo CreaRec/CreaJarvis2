@@ -24,7 +24,17 @@ pip install openwakeword
 
 ## Run
 
+Core must be up (`docker compose up` on `:8787`). Then from repo root:
+
 ```bash
+./clients/desktop/run.sh
+```
+
+Or manually:
+
+```bash
+cd clients/desktop
+source .venv/bin/activate   # create venv + pip install -r requirements.txt first if needed
 export VOICE_GATEWAY_URL=ws://127.0.0.1:8787/voice
 # optional: openWakeWord until microWakeWord streaming is wired
 export JARVIS_USE_OPENWAKEWORD=1

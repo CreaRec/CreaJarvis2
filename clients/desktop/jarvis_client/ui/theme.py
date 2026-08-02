@@ -10,6 +10,7 @@ BG = "#0b1220"
 PANEL = "#121a2b"
 BORDER = "#1e2a44"
 ACCENT = "#3dd6c6"
+GLOW = "#2a9f96"
 TEXT = "#e8eef9"
 MUTED = "#8b9bb8"
 DANGER = "#f07178"
@@ -99,15 +100,28 @@ def apply_theme(app: QApplication) -> None:
             border: 1px solid {BORDER};
             padding: 4px;
         }}
+        QLabel#brandLabel {{
+            font-size: 14px;
+            font-weight: 600;
+            color: {MUTED};
+            letter-spacing: 3px;
+        }}
         QLabel#fsmLabel {{
-            font-size: 28px;
+            font-size: 22px;
             font-weight: 600;
             color: {ACCENT};
-            letter-spacing: 1px;
+            letter-spacing: 2px;
         }}
         QLabel#connLabel {{
             color: {MUTED};
-            font-size: 13px;
+            font-size: 12px;
+        }}
+        QWidget#orbWidget {{
+            background-color: transparent;
+        }}
+        QPlainTextEdit#transcriptLog {{
+            font-size: 11px;
+            color: {MUTED};
         }}
         QFrame#toastBanner {{
             background-color: {PANEL};

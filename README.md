@@ -30,11 +30,7 @@ npm install
 npm run smoke:text -- "Как меня зовут?"
 
 # desktop voice client (host mic — not inside Docker)
-cd clients/desktop
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-export VOICE_GATEWAY_URL=ws://127.0.0.1:8787/voice
-python -m jarvis_client
+./clients/desktop/run.sh
 # native Qt window → Connect (or autoconnect) → Wake (Space) → speak
 ```
 
@@ -47,7 +43,7 @@ Audio stays on the host. Core stays in Docker. Details: [clients/desktop/README.
 | `docker compose up --build` | host | start Core + Postgres |
 | `docker compose run --rm core npx prisma migrate deploy` | host | apply migrations |
 | `npm run memory:import -- /path/export.md` | compose run / host | ingest markdown facts |
-| `python -m jarvis_client` | `clients/desktop` venv | desktop voice client |
+| `./clients/desktop/run.sh` | host | desktop voice client |
 | `npm run smoke:text` | host | text turn without mic |
 
 ## Health

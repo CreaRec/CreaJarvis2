@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 from jarvis_client.session import SessionController
 from jarvis_client.ui.bridge import SignalBridge
 from jarvis_client.ui.debug_panel import DebugPanel
+from jarvis_client.ui.orb import OrbWidget
 from jarvis_client.ui.toast import ToastBanner, TrayNotifier
 
 DEFAULT_WS = os.environ.get("VOICE_GATEWAY_URL", "ws://127.0.0.1:8787/voice")
@@ -45,6 +46,12 @@ class MainWindow(QMainWindow):
         self._toast_banner = ToastBanner()
         self._tray = TrayNotifier(self)
 
+        brand = QLabel("CREAJARVIS")
+        brand.setObjectName("brandLabel")
+        brand.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self._orb = OrbWidget()
+
         self._fsm_label = QLabel("idle")
         self._fsm_label.setObjectName("fsmLabel")
         self._fsm_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -66,6 +73,7 @@ class MainWindow(QMainWindow):
         self._connect_btn.clicked.connect(self.do_connect)
 
         btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
         btn_row.addStretch(1)
         btn_row.addWidget(self._wake_btn)
         btn_row.addWidget(self._connect_btn)
@@ -82,14 +90,23 @@ class MainWindow(QMainWindow):
         text_row.addWidget(send_btn)
 
         self._log = QPlainTextEdit()
+        self._log.setObjectName("transcriptLog")
         self._log.setReadOnly(True)
         self._log.setMaximumBlockCount(_MAX_LOG_LINES)
+        self._log.setMinimumHeight(120)
+
+        orb_row = QHBoxLayout()
+        orb_row.addStretch(1)
+        orb_row.addWidget(self._orb)
+        orb_row.addStretch(1)
 
         main_page = QWidget()
         main_layout = QVBoxLayout(main_page)
-        main_layout.setSpacing(12)
+        main_layout.setSpacing(8)
+        main_layout.setContentsMargins(16, 12, 16, 12)
         main_layout.addWidget(self._toast_banner)
-        main_layout.addWidget(QLabel("CreaJarvis"))
+        main_layout.addWidget(brand)
+        main_layout.addLayout(orb_row)
         main_layout.addWidget(self._fsm_label)
         main_layout.addWidget(self._conn_label)
         main_layout.addWidget(hint)
@@ -186,6 +203,7 @@ class MainWindow(QMainWindow):
 
     def _on_state(self, state: str) -> None:
         self._fsm_label.setText(state)
+        self._orb.set_state(state)
 
     def _on_toast(self, title: str, body: str, meta: str) -> None:
         self._toast_banner.show_toast(title, body, meta)

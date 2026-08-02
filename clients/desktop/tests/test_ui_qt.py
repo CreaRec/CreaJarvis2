@@ -51,11 +51,16 @@ def test_main_window_smoke(qapp: QApplication) -> None:
     assert win.windowTitle() == "CreaJarvis Desktop"
     assert win._fsm_label.text() == "idle"
     assert win._conn_label.text() == "disconnected"
+    assert win._orb.state == "idle"
     # Drive bridge without connecting transport
     win.bridge.state_changed.emit("armed")
     win.bridge.toast.emit("Напоминание", "tea", "15:00")
     qapp.processEvents()
     assert win._fsm_label.text() == "armed"
+    assert win._orb.state == "armed"
+    win.bridge.state_changed.emit("listening")
+    qapp.processEvents()
+    assert win._orb.state == "listening"
     # Parent window is not shown in offscreen smoke; isHidden tracks setVisible.
     assert not win._toast_banner.isHidden()
     assert win._toast_banner._title.text() == "Напоминание"
