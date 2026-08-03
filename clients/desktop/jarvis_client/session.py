@@ -267,6 +267,10 @@ class SessionController:
             if role == "user" and isinstance(text, str) and is_goodbye_utterance(text):
                 self._end_after_goodbye = True
                 self.log("goodbye phrase — will end session after reply")
+                # STT often finishes after response.done → already ARMED
+                if self.fsm.state == State.ARMED:
+                    self.log("goodbye — already armed, ending now")
+                    self.fsm.force_idle()
         elif t == "error":
             self.log(f"error: {msg.get('message')}")
         elif t == "reminder.fired":
@@ -297,6 +301,10 @@ class SessionController:
             self.fsm.force_idle()
             return
         self.fsm.on_playback_drained()
+        # Transcript may land between the check above and entering ARMED
+        if self._end_after_goodbye and self.fsm.state == State.ARMED:
+            self.log("goodbye — session.end now")
+            self.fsm.force_idle()
 
     def _toast(self, title: str, body: str, meta: str) -> None:
         self.log(f"toast: {title}")

@@ -13,9 +13,15 @@ def test_goodbye_phrases() -> None:
     assert is_goodbye_utterance("Пока Джарвис")
     assert is_goodbye_utterance("thank you jarvis")
     assert is_goodbye_utterance("Джарвис, спасибо")
+    assert is_goodbye_utterance("Джарвис пока")
+    assert is_goodbye_utterance("Давай, до свидания.")
+    assert is_goodbye_utterance("Старый пока.")  # STT mangling of «Джарвис пока»
+    assert is_goodbye_utterance("пока")
+    assert is_goodbye_utterance("всё")
 
 
 def test_not_goodbye_commands() -> None:
     assert not is_goodbye_utterance("спасибо джарвис поставь таймер на 5 минут")
     assert not is_goodbye_utterance("который час")
+    assert not is_goodbye_utterance("не уходи пока я говорю")
     assert not is_goodbye_utterance("")
