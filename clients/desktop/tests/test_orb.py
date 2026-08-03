@@ -38,6 +38,18 @@ def test_visual_for_state_known_and_unknown() -> None:
     assert unknown == idle
 
 
+def test_busy_states_keep_calm_spin() -> None:
+    """processing/ack should read as glow, not a fast spin."""
+    idle = visual_for_state("idle")
+    processing = visual_for_state("processing")
+    ack = visual_for_state("ack")
+
+    assert processing.spin_rps <= idle.spin_rps * 1.15
+    assert ack.spin_rps <= idle.spin_rps * 1.15
+    assert processing.glow_alpha > idle.glow_alpha
+    assert ack.glow_alpha > idle.glow_alpha
+
+
 def test_set_state_updates_visual(qapp: QApplication) -> None:
     orb = OrbWidget()
     assert orb.backend == "painter"

@@ -10,15 +10,15 @@
     return;
   }
 
-  // Motion stays calm; activity shows as glow / soft voice pulse, not shaking.
+  // Motion stays calm; activity shows as glow / soft voice pulse, not spinning.
   const STATES = {
     idle: { energy: 0.25, spin: 0.06, bloom: 0.45, breath: 0.22, voice: 0 },
-    connecting: { energy: 0.32, spin: 0.08, bloom: 0.55, breath: 0.28, voice: 0 },
-    armed: { energy: 0.4, spin: 0.1, bloom: 0.65, breath: 0.32, voice: 0 },
-    ack: { energy: 0.55, spin: 0.14, bloom: 0.9, breath: 0.4, voice: 0.35 },
-    processing: { energy: 0.5, spin: 0.16, bloom: 0.95, breath: 0.38, voice: 0.15 },
-    listening: { energy: 0.55, spin: 0.1, bloom: 0.85, breath: 0.45, voice: 0.25 },
-    speaking: { energy: 0.7, spin: 0.09, bloom: 1.15, breath: 0.35, voice: 1.0 },
+    connecting: { energy: 0.32, spin: 0.07, bloom: 0.55, breath: 0.26, voice: 0 },
+    armed: { energy: 0.4, spin: 0.07, bloom: 0.65, breath: 0.28, voice: 0 },
+    ack: { energy: 0.55, spin: 0.07, bloom: 0.95, breath: 0.3, voice: 0.35 },
+    processing: { energy: 0.55, spin: 0.07, bloom: 1.05, breath: 0.28, voice: 0.2 },
+    listening: { energy: 0.55, spin: 0.08, bloom: 0.85, breath: 0.4, voice: 0.25 },
+    speaking: { energy: 0.7, spin: 0.07, bloom: 1.15, breath: 0.32, voice: 1.0 },
   };
 
   const canvas = document.getElementById("c");
@@ -166,8 +166,8 @@
     return group;
   }
 
-  const ringA = makeOrbitalRing(3.5, 0xffffff, 0.8, 0.3);
-  const ringB = makeOrbitalRing(4.0, 0xaaaaaa, -0.5, -0.5);
+  const ringA = makeOrbitalRing(3.5, 0xffffff, 0.35, 0.3);
+  const ringB = makeOrbitalRing(4.0, 0xaaaaaa, -0.22, -0.5);
   root.add(ringA);
   root.add(ringB);
 
