@@ -1,10 +1,11 @@
+import { timingSafeEqual } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 import type { AppConfig } from "../config.js";
 import { RealtimeClient } from "../realtime/client.js";
 import { todayLocalDate } from "../utils/time/index.js";
 import { toItemPublic, type PlanStore } from "../plans/store.js";
-import type { ClientRegistry } from "../reminders/client-registry.js";
+import type { DeviceRegistry } from "../reminders/device-registry.js";
 import { toPublic, type ReminderStore } from "../reminders/store.js";
 import type { ToolGateway } from "../tools/gateway.js";
 import {
@@ -14,12 +15,19 @@ import {
 } from "./voice-protocol.js";
 
 export type ClientOutbound =
+  | { type: "hello.ok"; deviceId: string; serverTime: string }
   | { type: "ready" }
   | { type: "audio.delta"; audio: string }
   | { type: "transcript"; role: "user" | "assistant"; text: string }
   | { type: "response.done" }
   | { type: "tool.status"; tool: string; ok: boolean }
   | { type: "error"; message: string }
+  | {
+      type: "session.busy";
+      ownerDeviceId: string;
+      ownerDisplayName?: string;
+    }
+  | { type: "session.ended"; reason: string }
   | {
       type: "reminder.fired";
       reminder: ReturnType<typeof toPublic>;
@@ -40,9 +48,16 @@ export interface VoiceGatewayDeps {
   config: AppConfig;
   tools: ToolGateway;
   getInstructions: () => Promise<string>;
-  clientRegistry: ClientRegistry;
+  deviceRegistry: DeviceRegistry;
   reminderStore: ReminderStore;
   planStore: PlanStore;
+}
+
+function tokensEqual(a: string, b: string): boolean {
+  const ba = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ba.length !== bb.length) return false;
+  return timingSafeEqual(ba, bb);
 }
 
 export class VoiceGateway {
@@ -57,23 +72,24 @@ export class VoiceGateway {
     });
   }
 
-  private async flushMissed(socket: WebSocket): Promise<void> {
+  private async flushMissed(): Promise<void> {
     const missed = await this.deps.reminderStore.listMissed(50);
     if (missed.length === 0) return;
-    this.deps.clientRegistry.send(socket, {
+    const sent = this.deps.deviceRegistry.broadcast({
       type: "reminder.missed_digest",
       reminders: missed.map(toPublic),
     });
+    if (sent === 0) return;
     for (const r of missed) {
       await this.deps.reminderStore.completeDelivery(r.id);
     }
   }
 
-  private async flushTodayPlan(socket: WebSocket): Promise<void> {
+  private async flushTodayPlan(): Promise<void> {
     const day = await this.deps.planStore.listOpenToday();
     const open = day.items.filter((i) => i.status === "open");
     if (open.length === 0) return;
-    this.deps.clientRegistry.send(socket, {
+    this.deps.deviceRegistry.broadcast({
       type: "plan.today_digest",
       date: day.localDate || todayLocalDate(this.deps.config.USER_TIMEZONE),
       items: open.map(toItemPublic),
@@ -85,7 +101,8 @@ export class VoiceGateway {
     _req: IncomingMessage,
   ): Promise<void> {
     let realtime: RealtimeClient | null = null;
-    this.deps.clientRegistry.add(socket);
+    let deviceId: string | null = null;
+    let helloDone = false;
 
     const send = (msg: ClientOutbound) => {
       if (socket.readyState === WebSocket.OPEN) {
@@ -117,17 +134,26 @@ export class VoiceGateway {
       });
       await realtime.connect();
       send({ type: "ready" });
-      try {
-        await this.flushMissed(socket);
-      } catch (err) {
-        console.error("[voice-gateway] missed flush failed:", err);
-      }
-      try {
-        await this.flushTodayPlan(socket);
-      } catch (err) {
-        console.error("[voice-gateway] plan digest failed:", err);
-      }
       return realtime;
+    };
+
+    const requireOwner = (): boolean => {
+      if (!deviceId || !this.deps.deviceRegistry.isVoiceOwner(deviceId)) {
+        send({ type: "error", message: "Not voice owner" });
+        return false;
+      }
+      return true;
+    };
+
+    const releaseRealtime = async (reason: string) => {
+      if (realtime) {
+        await realtime.close();
+        realtime = null;
+        send({ type: "session.ended", reason });
+      }
+      if (deviceId) {
+        this.deps.deviceRegistry.releaseVoice(deviceId);
+      }
     };
 
     socket.on("message", (data) => {
@@ -146,33 +172,92 @@ export class VoiceGateway {
             return;
           }
           const msg = parsed.message;
+
+          if (!helloDone) {
+            if (msg.type !== "hello") {
+              send({ type: "error", message: "hello required first" });
+              socket.close();
+              return;
+            }
+            if (!tokensEqual(msg.token, this.deps.config.JARVIS_GATEWAY_TOKEN)) {
+              send({ type: "error", message: "Unauthorized" });
+              socket.close();
+              return;
+            }
+            const displayName = msg.displayName ?? msg.deviceId;
+            this.deps.deviceRegistry.register(
+              msg.deviceId,
+              socket,
+              displayName,
+              msg.caps,
+            );
+            deviceId = msg.deviceId;
+            helloDone = true;
+            send({
+              type: "hello.ok",
+              deviceId: msg.deviceId,
+              serverTime: new Date().toISOString(),
+            });
+            try {
+              await this.flushMissed();
+            } catch (err) {
+              console.error("[voice-gateway] missed flush failed:", err);
+            }
+            try {
+              await this.flushTodayPlan();
+            } catch (err) {
+              console.error("[voice-gateway] plan digest failed:", err);
+            }
+            return;
+          }
+
           switch (msg.type) {
-            case "session.start":
+            case "hello":
+              send({ type: "error", message: "already hello'd" });
+              break;
+            case "session.start": {
+              if (!deviceId) {
+                send({ type: "error", message: "hello required first" });
+                break;
+              }
+              const claim = this.deps.deviceRegistry.claimVoice(deviceId);
+              if (!claim.ok) {
+                send({
+                  type: "session.busy",
+                  ownerDeviceId: claim.ownerDeviceId,
+                  ownerDisplayName: claim.ownerDisplayName,
+                });
+                break;
+              }
               await ensureRealtime();
               break;
+            }
             case "audio.append": {
+              if (!requireOwner()) break;
               const rt = await ensureRealtime();
               rt.appendAudio(msg.audio);
               break;
             }
             case "audio.commit": {
+              if (!requireOwner()) break;
               const rt = await ensureRealtime();
               rt.commitAudio();
               break;
             }
             case "text": {
+              if (!requireOwner()) break;
               const rt = await ensureRealtime();
               await rt.sendText(msg.text);
               break;
             }
             case "ack.play": {
+              if (!requireOwner()) break;
               const rt = await ensureRealtime();
               await rt.playAck(ACK_PLAY_PROMPT);
               break;
             }
             case "session.end":
-              await realtime?.close();
-              realtime = null;
+              await releaseRealtime("session.end");
               break;
             default: {
               const _exhaustive: never = msg;
@@ -189,8 +274,14 @@ export class VoiceGateway {
     });
 
     socket.on("close", () => {
-      this.deps.clientRegistry.remove(socket);
-      void realtime?.close();
+      const { wasVoiceOwner } = this.deps.deviceRegistry.unregister(socket);
+      if (wasVoiceOwner) {
+        void realtime?.close();
+        realtime = null;
+      } else {
+        void realtime?.close();
+        realtime = null;
+      }
     });
   }
 }

@@ -1,4 +1,5 @@
-import { createServer } from "node:http";
+import { timingSafeEqual } from "node:crypto";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { loadConfig } from "../config.js";
 import {
   debugLogBuffer,
@@ -14,7 +15,7 @@ import {
   formatWarmProfileBlock,
 } from "../memory/warm-profile.js";
 import { PlanStore, toItemPublic } from "../plans/store.js";
-import { ClientRegistry } from "../reminders/client-registry.js";
+import { DeviceRegistry } from "../reminders/device-registry.js";
 import { ReminderPoller } from "../reminders/poller.js";
 import { ReminderStore, toPublic } from "../reminders/store.js";
 import { ThemeStore } from "../themes/store.js";
@@ -29,10 +30,13 @@ import { VoiceGateway } from "./voice-gateway.js";
 
 installConsoleCapture(debugLogBuffer);
 
-function applyCors(res: import("node:http").ServerResponse): void {
+function applyCors(res: ServerResponse): void {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization",
+  );
 }
 
 function parseAfterId(url: string): number {
@@ -44,6 +48,35 @@ function parseAfterId(url: string): number {
   } catch {
     return 0;
   }
+}
+
+function extractBearer(req: IncomingMessage): string | null {
+  const header = req.headers.authorization;
+  if (!header || typeof header !== "string") return null;
+  const m = /^Bearer\s+(.+)$/i.exec(header.trim());
+  return m?.[1]?.trim() || null;
+}
+
+function tokensEqual(a: string, b: string): boolean {
+  const ba = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ba.length !== bb.length) return false;
+  return timingSafeEqual(ba, bb);
+}
+
+function requireDebugAuth(
+  req: IncomingMessage,
+  res: ServerResponse,
+  token: string,
+): boolean {
+  applyCors(res);
+  const provided = extractBearer(req);
+  if (!provided || !tokensEqual(provided, token)) {
+    res.writeHead(401, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: "Unauthorized" }));
+    return false;
+  }
+  return true;
 }
 
 async function main(): Promise<void> {
@@ -63,8 +96,8 @@ async function main(): Promise<void> {
     embedder,
   );
   const themeStore = new ThemeStore(prisma, embedder);
-  const clientRegistry = new ClientRegistry();
-  const poller = new ReminderPoller(reminderStore, clientRegistry, config);
+  const deviceRegistry = new DeviceRegistry();
+  const poller = new ReminderPoller(reminderStore, deviceRegistry, config);
 
   let cachedInstructions: string | null = null;
 
@@ -114,7 +147,7 @@ async function main(): Promise<void> {
   const voice = new VoiceGateway({
     config,
     tools,
-    clientRegistry,
+    deviceRegistry,
     reminderStore,
     planStore,
     getInstructions: async () => {
@@ -142,6 +175,7 @@ async function main(): Promise<void> {
     }
 
     if (url === "/debug/reminders" && req.method === "GET") {
+      if (!requireDebugAuth(req, res, config.JARVIS_GATEWAY_TOKEN)) return;
       void (async () => {
         try {
           const rows = await reminderStore.listForDebug(100);
@@ -165,6 +199,7 @@ async function main(): Promise<void> {
     }
 
     if (url === "/debug/plans" && req.method === "GET") {
+      if (!requireDebugAuth(req, res, config.JARVIS_GATEWAY_TOKEN)) return;
       void (async () => {
         try {
           const items = await planStore.listForDebug(100);
@@ -191,6 +226,7 @@ async function main(): Promise<void> {
     }
 
     if (url === "/debug/themes" && req.method === "GET") {
+      if (!requireDebugAuth(req, res, config.JARVIS_GATEWAY_TOKEN)) return;
       void (async () => {
         try {
           const rows = await themeStore.listForDebug(100);
@@ -217,6 +253,7 @@ async function main(): Promise<void> {
       (url === "/debug/logs" || url.startsWith("/debug/logs?")) &&
       req.method === "GET"
     ) {
+      if (!requireDebugAuth(req, res, config.JARVIS_GATEWAY_TOKEN)) return;
       const afterId = parseAfterId(url);
       const entries = debugLogBuffer.list({ afterId, limit: 500 });
       applyCors(res);

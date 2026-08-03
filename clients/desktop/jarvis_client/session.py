@@ -12,6 +12,7 @@ from typing import Any
 
 from jarvis_client.ack import RealtimeAckPlayer
 from jarvis_client.audio_io import AudioIO, pcm16_bytes_to_b64, rms_int16
+from jarvis_client.device_id import load_or_create_device_id
 from jarvis_client.fsm import State, VoiceFsm
 from jarvis_client.gateway import GatewayClient, ResponseDoneWaiter
 from jarvis_client.goodbye import is_goodbye_utterance
@@ -33,12 +34,20 @@ class SessionController:
         self,
         *,
         gateway_url: str,
+        gateway_token: str,
+        device_id: str | None = None,
+        display_name: str | None = None,
         on_log: Callable[[str], None] | None = None,
         on_state: Callable[[str], None] | None = None,
         on_toast: Callable[[str, str, str], None] | None = None,
         loop: asyncio.AbstractEventLoop | None = None,
     ) -> None:
         self.gateway_url = gateway_url
+        self.gateway_token = gateway_token
+        self.device_id = device_id or load_or_create_device_id()
+        self.display_name = display_name or os.environ.get(
+            "JARVIS_DEVICE_NAME", ""
+        ).strip() or None
         self._on_log = on_log or (lambda m: log.info("%s", m))
         self._on_state = on_state or (lambda s: None)
         self._on_toast = on_toast
@@ -86,14 +95,27 @@ class SessionController:
         self._on_log(msg)
 
     def connect_transport(self) -> None:
-        """Open WS to gateway (no Realtime until wake)."""
+        """Open WS to gateway, hello, then local mic/wake (no Realtime until wake)."""
+        if not (self.gateway_token or "").strip():
+            raise RuntimeError(
+                "JARVIS_GATEWAY_TOKEN is required (Settings or environment)"
+            )
         self.gateway.url = self.gateway_url
         self.gateway.connect()
+        ok = self.gateway.send_hello(
+            token=self.gateway_token.strip(),
+            device_id=self.device_id,
+            display_name=self.display_name,
+        )
+        if not ok:
+            self.gateway.close()
+            self._ws_connected = False
+            raise RuntimeError("Voice Gateway hello failed or timed out")
         self._ws_connected = True
         self.audio.start()
         self.audio.set_capture_enabled(True)  # always capture for wake / VAD
         self.wake.start()
-        self.log(f"connected transport {self.gateway_url}")
+        self.log(f"connected transport {self.gateway_url} as {self.device_id}")
         if self.mww.available:
             self.log("microWakeWord model present (streaming features TBD)")
         else:
@@ -190,9 +212,22 @@ class SessionController:
 
     def _on_gateway_message(self, msg: dict[str, Any]) -> None:
         t = msg.get("type")
-        if t == "ready":
+        if t == "hello.ok":
+            self.log(f"hello.ok device={msg.get('deviceId')}")
+        elif t == "ready":
             self.log("session ready")
             self.fsm.on_session_ready()
+        elif t == "session.busy":
+            owner = (
+                msg.get("ownerDisplayName")
+                or msg.get("ownerDeviceId")
+                or "?"
+            )
+            self.log(f"session busy: {owner}")
+            self._toast("Голос занят", f"Сейчас на устройстве: {owner}", "")
+            self.fsm.force_idle()
+        elif t == "session.ended":
+            self.log(f"session.ended: {msg.get('reason', '')}")
         elif t == "audio.delta":
             audio = msg.get("audio")
             if isinstance(audio, str) and audio:

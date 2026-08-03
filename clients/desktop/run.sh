@@ -23,5 +23,12 @@ else
 fi
 
 export VOICE_GATEWAY_URL="${VOICE_GATEWAY_URL:-ws://127.0.0.1:8787/voice}"
+if [[ -z "${JARVIS_GATEWAY_TOKEN:-}" && -f "$ROOT/../../.env" ]]; then
+  JARVIS_GATEWAY_TOKEN="$(grep -E '^JARVIS_GATEWAY_TOKEN=' "$ROOT/../../.env" | head -1 | cut -d= -f2- | tr -d '\r')"
+  export JARVIS_GATEWAY_TOKEN
+fi
+if [[ -z "${JARVIS_GATEWAY_TOKEN:-}" ]]; then
+  echo "warning: JARVIS_GATEWAY_TOKEN not set — Connect will fail until Settings has the household token" >&2
+fi
 
 exec python -m jarvis_client "$@"

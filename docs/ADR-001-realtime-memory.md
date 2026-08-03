@@ -17,12 +17,13 @@ Build a personal Jarvis from scratch (no upstream fork). First slice: talk via O
 
 ### 2. Voice Gateway protocol
 
-Desktop client ↔ `ws://localhost:8787/voice`:
+Desktop client ↔ Core `/voice` (LAN; see [ADR-005](ADR-005-multi-device-gateway.md)):
 
+- first inbound: `hello` (token + deviceId + caps)
 - inbound: `session.start` | `audio.append` | `audio.commit` | `session.end` | `text` | `ack.play`
-- outbound: `ready` | `audio.delta` | `transcript` | `tool.status` | `error` | `reminder.fired` | `reminder.missed_digest` (reminders: ADR-002) | `plan.today_digest` (day plans: ADR-003)
+- outbound: `hello.ok` | `ready` | `session.busy` | `session.ended` | `audio.delta` | `transcript` | `tool.status` | `error` | `reminder.fired` | `reminder.missed_digest` (reminders: ADR-002) | `plan.today_digest` (day plans: ADR-003)
 
-Realtime session uses manual turn detection (`turn_detection: null`); the desktop client commits on local silence EOS after wake. `ack.play` triggers a short «Я тут» spoken acknowledgment.
+Realtime session uses manual turn detection (`turn_detection: null`); the desktop client commits on local silence EOS after wake. `ack.play` triggers a short «Я тут» spoken acknowledgment. Only one device may own the voice session at a time.
 
 ### 3. Prisma + pgvector as cold store
 

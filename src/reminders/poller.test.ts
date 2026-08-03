@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WebSocket } from "ws";
 import type { AppConfig } from "../config.js";
 import { zonedLocalToUtc } from "../utils/time/index.js";
-import { ClientRegistry } from "./client-registry.js";
+import { DeviceRegistry } from "./device-registry.js";
 import { ReminderPoller } from "./poller.js";
 import type { ReminderStore } from "./store.js";
 import type { ReminderRecord } from "./types.js";
@@ -20,6 +20,7 @@ function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     REALTIME_MODEL: "gpt-realtime-2.1",
     VOICE: "marin",
     VOICE_GATEWAY_URL: "ws://127.0.0.1:8787/voice",
+    JARVIS_GATEWAY_TOKEN: "test-token-lan",
     BRAVE_API_KEY: "test",
     BRAVE_COUNTRY: "US",
     BRAVE_SEARCH_LANG: "ru",
@@ -75,6 +76,19 @@ function makeStore(
   return { store, update, markMissed, completeDelivery };
 }
 
+function registerOpen(
+  registry: DeviceRegistry,
+  deviceId = "d1",
+): { socket: WebSocket; send: ReturnType<typeof vi.fn> } {
+  const send = vi.fn();
+  const socket = { readyState: 1, send, close: vi.fn() } as unknown as WebSocket;
+  registry.register(deviceId, socket, deviceId, {
+    voice: true,
+    notify: true,
+  });
+  return { socket, send };
+}
+
 async function runTick(poller: ReminderPoller): Promise<void> {
   await (
     poller as unknown as { tick: () => Promise<void> }
@@ -94,8 +108,8 @@ describe("ReminderPoller", () => {
     const { store, update, markMissed, completeDelivery } = makeStore([
       reminder,
     ]);
-    const registry = new ClientRegistry();
-    registry.add({ readyState: 1, send: vi.fn() } as unknown as WebSocket);
+    const registry = new DeviceRegistry();
+    registerOpen(registry);
     const poller = new ReminderPoller(store, registry, makeConfig());
 
     await runTick(poller);
@@ -115,9 +129,8 @@ describe("ReminderPoller", () => {
     const { store, update, markMissed, completeDelivery } = makeStore([
       reminder,
     ]);
-    const registry = new ClientRegistry();
-    const send = vi.fn();
-    registry.add({ readyState: 1, send } as unknown as WebSocket);
+    const registry = new DeviceRegistry();
+    const { send } = registerOpen(registry);
     const poller = new ReminderPoller(store, registry, makeConfig());
 
     await runTick(poller);
@@ -133,7 +146,7 @@ describe("ReminderPoller", () => {
     vi.setSystemTime(zonedLocalToUtc(TZ, 2024, 1, 15, 12, 0, 0));
     const reminder = makeRecord();
     const { store, markMissed, completeDelivery } = makeStore([reminder]);
-    const registry = new ClientRegistry();
+    const registry = new DeviceRegistry();
     const poller = new ReminderPoller(store, registry, makeConfig());
 
     await runTick(poller);
@@ -147,8 +160,8 @@ describe("ReminderPoller", () => {
     vi.setSystemTime(zonedLocalToUtc(TZ, 2024, 1, 15, 12, 0, 0));
     const reminder = makeRecord();
     const { store, markMissed, completeDelivery } = makeStore([reminder]);
-    const registry = new ClientRegistry();
-    registry.add({ readyState: 1, send: vi.fn() } as unknown as WebSocket);
+    const registry = new DeviceRegistry();
+    registerOpen(registry);
     const poller = new ReminderPoller(store, registry, makeConfig());
 
     await runTick(poller);
@@ -162,8 +175,13 @@ describe("ReminderPoller", () => {
     vi.setSystemTime(zonedLocalToUtc(TZ, 2024, 1, 15, 12, 0, 0));
     const reminder = makeRecord();
     const { store, markMissed, completeDelivery } = makeStore([reminder]);
-    const registry = new ClientRegistry();
-    registry.add({ readyState: 3, send: vi.fn() } as unknown as WebSocket);
+    const registry = new DeviceRegistry();
+    const socket = {
+      readyState: 3,
+      send: vi.fn(),
+      close: vi.fn(),
+    } as unknown as WebSocket;
+    registry.register("d1", socket, "d1", { voice: true, notify: true });
     const poller = new ReminderPoller(store, registry, makeConfig());
 
     await runTick(poller);

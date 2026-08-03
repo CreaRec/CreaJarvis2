@@ -23,6 +23,25 @@ def decode(raw: str | bytes) -> dict[str, Any]:
     return data
 
 
+def hello(
+    *,
+    token: str,
+    device_id: str,
+    display_name: str | None = None,
+    voice: bool = True,
+    notify: bool = True,
+) -> dict[str, Any]:
+    msg: dict[str, Any] = {
+        "type": "hello",
+        "token": token,
+        "deviceId": device_id,
+        "caps": {"voice": voice, "notify": notify},
+    }
+    if display_name:
+        msg["displayName"] = display_name
+    return msg
+
+
 def session_start() -> dict[str, Any]:
     return {"type": "session.start"}
 

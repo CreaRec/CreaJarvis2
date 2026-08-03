@@ -5,6 +5,7 @@ from jarvis_client.protocol import (
     audio_append,
     decode,
     encode,
+    hello,
     session_start,
 )
 
@@ -23,3 +24,14 @@ def test_audio_append() -> None:
     m = audio_append("AAAA")
     assert m["type"] == "audio.append"
     assert m["audio"] == "AAAA"
+
+
+def test_hello_shape() -> None:
+    m = hello(token="secret-token", device_id="dev-1", display_name="Mac")
+    assert m == {
+        "type": "hello",
+        "token": "secret-token",
+        "deviceId": "dev-1",
+        "caps": {"voice": True, "notify": True},
+        "displayName": "Mac",
+    }

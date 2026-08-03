@@ -21,19 +21,19 @@ Tools: `reminder_create`, `reminder_list`, `reminder_search`, `reminder_update`,
 
 The Realtime model resolves relative phrases using `get_current_time` and `USER_TIMEZONE` / default part-of-day hours from config, then passes absolute ISO `fire_at` to tools.
 
-### 3. In-process poller + ClientRegistry
+### 3. In-process poller + DeviceRegistry
 
 - `ReminderPoller` claims due rows (`FOR UPDATE SKIP LOCKED`) on an interval (`REMINDER_POLL_MS`).
-- Delivery v1: broadcast Voice Gateway outbound events to connected browsers:
+- Delivery: broadcast Voice Gateway outbound events to **notifiable** connected devices (ADR-005):
   - `reminder.fired`
-  - `reminder.missed_digest` (flush missed on session ready)
+  - `reminder.missed_digest` (flush missed on device `hello`, household-level complete after broadcast)
 - No Realtime proactive speech for reminders.
 - Quiet hours defer delivery by shifting `fireAt`; short snooze may set `quietHoursOverride`.
 
 ### 4. Web toast + debug UI
 
 - `clients/desktop` shows toasts/notifications on reminder events.
-- Collapsible **Debug · Reminders** table loads `GET /debug/reminders` (CORS enabled for local fetch).
+- Collapsible **Debug · Reminders** table loads `GET /debug/reminders` with `Authorization: Bearer <JARVIS_GATEWAY_TOKEN>`.
 
 ### 5. Not Temporal
 
@@ -41,6 +41,6 @@ Personal one-shot/recurring fire-at CRUD does not justify a Temporal cluster. Re
 
 ## Consequences
 
-- Core must stay up for due delivery; missed reminders wait for next Voice WS connect.
+- Core must stay up for due delivery; missed reminders wait for next authenticated device `hello`.
 - Protocol outbound types grow beyond ADR-001 (`reminder.fired`, `reminder.missed_digest`).
-- Debug HTTP is intentionally open (`Access-Control-Allow-Origin: *`) for local MVP — tighten before any shared deploy.
+- Debug HTTP requires the household bearer token (ADR-005); CORS remains permissive for LAN clients that send auth.

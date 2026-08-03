@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from jarvis_client.device_id import load_or_create_device_id
 from jarvis_client.session import SessionController
 from jarvis_client.ui.bridge import SignalBridge
 from jarvis_client.ui.debug_panel import DebugPanel
@@ -28,6 +29,8 @@ from jarvis_client.ui.orb import OrbWidget
 from jarvis_client.ui.toast import ToastBanner, TrayNotifier
 
 DEFAULT_WS = os.environ.get("VOICE_GATEWAY_URL", "ws://127.0.0.1:8787/voice")
+DEFAULT_TOKEN = os.environ.get("JARVIS_GATEWAY_TOKEN", "")
+DEFAULT_DEVICE_NAME = os.environ.get("JARVIS_DEVICE_NAME", "")
 
 
 class MainWindow(QMainWindow):
@@ -162,16 +165,37 @@ class MainWindow(QMainWindow):
         settings_layout.addWidget(QLabel("Voice Gateway WebSocket URL"))
         self._ws_input = QLineEdit(DEFAULT_WS)
         settings_layout.addWidget(self._ws_input)
+        settings_layout.addWidget(QLabel("Household gateway token"))
+        self._token_input = QLineEdit(DEFAULT_TOKEN)
+        self._token_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self._token_input.setPlaceholderText("JARVIS_GATEWAY_TOKEN")
+        settings_layout.addWidget(self._token_input)
+        settings_layout.addWidget(QLabel("Device display name (optional)"))
+        self._name_input = QLineEdit(DEFAULT_DEVICE_NAME)
+        self._name_input.setPlaceholderText("e.g. MacBook")
+        settings_layout.addWidget(self._name_input)
+        self._device_id_label = QLabel(
+            f"Device ID: {load_or_create_device_id()}"
+        )
+        self._device_id_label.setObjectName("sectionMeta")
+        self._device_id_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        settings_layout.addWidget(self._device_id_label)
         settings_hint = QLabel(
-            "Change the URL here, then Connect on the main tab. "
-            "Default comes from VOICE_GATEWAY_URL."
+            "Set Core LAN URL (ws://HOST:8787/voice) and the same "
+            "JARVIS_GATEWAY_TOKEN as on the server, then Connect on Main. "
+            "See ADR-005 for multi-device hello / voice ownership."
         )
         settings_hint.setObjectName("sectionMeta")
         settings_hint.setWordWrap(True)
         settings_layout.addWidget(settings_hint)
         settings_layout.addStretch(1)
 
-        self._debug = DebugPanel(gateway_url_getter=self.gateway_url)
+        self._debug = DebugPanel(
+            gateway_url_getter=self.gateway_url,
+            gateway_token_getter=self.gateway_token,
+        )
 
         tabs = QTabWidget()
         tabs.addTab(main_page, "Main")
@@ -187,6 +211,13 @@ class MainWindow(QMainWindow):
     def gateway_url(self) -> str:
         return (self._ws_input.text() or DEFAULT_WS).strip()
 
+    def gateway_token(self) -> str:
+        return (self._token_input.text() or "").strip()
+
+    def device_display_name(self) -> str | None:
+        name = (self._name_input.text() or "").strip()
+        return name or None
+
     def auto_connect(self) -> None:
         """Connect on startup using VOICE_GATEWAY_URL / Settings field."""
         self.do_connect()
@@ -194,9 +225,12 @@ class MainWindow(QMainWindow):
     def do_connect(self) -> None:
         self.do_disconnect()
         url = self.gateway_url()
+        token = self.gateway_token()
         loop = asyncio.get_event_loop()
         c = SessionController(
             gateway_url=url,
+            gateway_token=token,
+            display_name=self.device_display_name(),
             on_log=lambda m: self.bridge.log_line.emit(m),
             on_state=lambda s: self.bridge.state_changed.emit(s),
             on_toast=lambda t, b, m: self.bridge.toast.emit(t, b, m),

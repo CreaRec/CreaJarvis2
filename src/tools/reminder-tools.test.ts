@@ -16,6 +16,7 @@ function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     REALTIME_MODEL: "gpt-realtime-2.1",
     VOICE: "marin",
     VOICE_GATEWAY_URL: "ws://127.0.0.1:8787/voice",
+    JARVIS_GATEWAY_TOKEN: "test-token-lan",
     BRAVE_API_KEY: "test",
     BRAVE_COUNTRY: "US",
     BRAVE_SEARCH_LANG: "ru",

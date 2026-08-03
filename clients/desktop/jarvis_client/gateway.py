@@ -8,7 +8,6 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
-import websockets
 from websockets.sync.client import connect as sync_connect
 
 from jarvis_client import protocol as proto
@@ -33,6 +32,8 @@ class GatewayClient:
         self._recv_thread: threading.Thread | None = None
         self._lock = threading.Lock()
         self.ready = False
+        self.hello_ok = False
+        self._hello_event = threading.Event()
 
     @property
     def connected(self) -> bool:
@@ -41,6 +42,8 @@ class GatewayClient:
     def connect(self) -> None:
         self.close()
         self.ready = False
+        self.hello_ok = False
+        self._hello_event.clear()
         ws = sync_connect(self.url)
         self._ws = ws
         self._recv_thread = threading.Thread(target=self._recv_loop, daemon=True)
@@ -51,6 +54,8 @@ class GatewayClient:
             ws = self._ws
             self._ws = None
             self.ready = False
+            self.hello_ok = False
+            self._hello_event.clear()
         if ws is not None:
             try:
                 ws.close()
@@ -68,6 +73,30 @@ class GatewayClient:
             ws.send(proto.encode(msg))
         except Exception as err:
             log.warning("send failed: %s", err)
+
+    def send_hello(
+        self,
+        *,
+        token: str,
+        device_id: str,
+        display_name: str | None = None,
+        timeout: float = 10.0,
+    ) -> bool:
+        """Send hello and wait for hello.ok. Returns True on success."""
+        self.hello_ok = False
+        self._hello_event.clear()
+        self.send(
+            proto.hello(
+                token=token,
+                device_id=device_id,
+                display_name=display_name,
+            )
+        )
+        return self.wait_hello(timeout=timeout)
+
+    def wait_hello(self, timeout: float = 10.0) -> bool:
+        ok = self._hello_event.wait(timeout=timeout)
+        return bool(ok and self.hello_ok)
 
     def start_session(self) -> None:
         self.ready = False
@@ -87,13 +116,18 @@ class GatewayClient:
                     msg = proto.decode(raw)
                 except Exception:
                     continue
-                if msg.get("type") == "ready":
+                t = msg.get("type")
+                if t == "hello.ok":
+                    self.hello_ok = True
+                    self._hello_event.set()
+                elif t == "ready":
                     self.ready = True
                 self._on_message(msg)
         except Exception as err:
             log.info("gateway recv ended: %s", err)
         finally:
             self.ready = False
+            self.hello_ok = False
             if self._on_close:
                 self._on_close()
 

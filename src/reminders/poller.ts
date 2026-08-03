@@ -1,5 +1,5 @@
 import type { AppConfig } from "../config.js";
-import type { ClientRegistry } from "./client-registry.js";
+import type { DeviceRegistry } from "./device-registry.js";
 import { shiftOutOfQuietHours } from "./quiet-hours.js";
 import { toPublic, type ReminderStore } from "./store.js";
 
@@ -9,7 +9,7 @@ export class ReminderPoller {
 
   constructor(
     private readonly store: ReminderStore,
-    private readonly registry: ClientRegistry,
+    private readonly registry: DeviceRegistry,
     private readonly config: AppConfig,
   ) {}
 
@@ -27,8 +27,8 @@ export class ReminderPoller {
   stop(): void {
     if (this.timer) {
       clearInterval(this.timer);
-      this.timer = null;
     }
+    this.timer = null;
   }
 
   private async tick(): Promise<void> {
@@ -53,7 +53,7 @@ export class ReminderPoller {
           }
         }
 
-        if (!this.registry.hasClients()) {
+        if (!this.registry.hasNotifiableClients()) {
           await this.store.markMissed(reminder.id);
           continue;
         }

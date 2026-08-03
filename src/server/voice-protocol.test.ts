@@ -5,6 +5,55 @@ import {
 } from "./voice-protocol.js";
 
 describe("parseClientInbound", () => {
+  it("parses hello with caps", () => {
+    expect(
+      parseClientInbound({
+        type: "hello",
+        token: "secret",
+        deviceId: "dev-1",
+        displayName: "Mac",
+        caps: { voice: true, notify: false },
+      }),
+    ).toEqual({
+      ok: true,
+      message: {
+        type: "hello",
+        token: "secret",
+        deviceId: "dev-1",
+        displayName: "Mac",
+        caps: { voice: true, notify: false },
+      },
+    });
+  });
+
+  it("defaults hello caps when omitted", () => {
+    const parsed = parseClientInbound({
+      type: "hello",
+      token: "secret",
+      deviceId: "  dev-2  ",
+    });
+    expect(parsed).toEqual({
+      ok: true,
+      message: {
+        type: "hello",
+        token: "secret",
+        deviceId: "dev-2",
+        caps: { voice: true, notify: true },
+      },
+    });
+  });
+
+  it("rejects hello without token or deviceId", () => {
+    expect(parseClientInbound({ type: "hello", deviceId: "x" })).toEqual({
+      ok: false,
+      error: "hello missing token",
+    });
+    expect(parseClientInbound({ type: "hello", token: "t" })).toEqual({
+      ok: false,
+      error: "hello missing deviceId",
+    });
+  });
+
   it("parses ack.play", () => {
     expect(parseClientInbound({ type: "ack.play" })).toEqual({
       ok: true,

@@ -1,6 +1,6 @@
-"""Tests for HTTP base URL helper."""
+"""Tests for HTTP helpers."""
 
-from jarvis_client.http_util import http_base_from_ws
+from jarvis_client.http_util import bearer_headers, http_base_from_ws
 
 
 def test_http_base_from_ws_default_port() -> None:
@@ -9,3 +9,9 @@ def test_http_base_from_ws_default_port() -> None:
 
 def test_http_base_from_ws_wss() -> None:
     assert http_base_from_ws("wss://example.com/voice") == "https://example.com:443"
+
+
+def test_bearer_headers() -> None:
+    assert bearer_headers("abc") == {"Authorization": "Bearer abc"}
+    assert bearer_headers("  ") == {}
+    assert bearer_headers("") == {}

@@ -28,11 +28,11 @@ Session instructions separate memory / reminders / day plans.
 
 ### 4. Connect digest
 
-On Voice Gateway `ready`, if there are open items for today, send `plan.today_digest` for a desktop-client toast. No separate plan poller.
+On authenticated device `hello`, if there are open items for today, broadcast `plan.today_digest` to notifiable devices (ADR-005). No separate plan poller.
 
 ### 5. Debug
 
-`GET /debug/plans` + Debug · Plans table in `clients/desktop`.
+`GET /debug/plans` (Bearer token) + Debug · Plans table in `clients/desktop`.
 
 ## Consequences
 

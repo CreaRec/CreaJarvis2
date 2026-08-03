@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from jarvis_client.http_util import http_base_from_ws
+from jarvis_client.http_util import bearer_headers, http_base_from_ws
 
 _MAX_LOG_LINES = 500
 
@@ -42,10 +42,12 @@ class DebugPanel(QWidget):
         self,
         *,
         gateway_url_getter: Callable[[], str],
+        gateway_token_getter: Callable[[], str] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._gateway_url_getter = gateway_url_getter
+        self._gateway_token_getter = gateway_token_getter or (lambda: "")
 
         log_meta = QLabel("Session log")
         log_meta.setObjectName("sectionMeta")
@@ -102,9 +104,13 @@ class DebugPanel(QWidget):
 
     def refresh(self) -> None:
         base = http_base_from_ws(self._gateway_url_getter())
+        headers = bearer_headers(self._gateway_token_getter())
         try:
             with httpx.Client(timeout=5.0) as client:
-                r = client.get(f"{base}/debug/reminders")
+                r = client.get(f"{base}/debug/reminders", headers=headers)
+                if r.status_code == 401:
+                    self.rem_meta.setText("debug error: Unauthorized (check token)")
+                    return
                 j = r.json()
                 rows = j.get("reminders") or []
                 self.rem_meta.setText(f"Reminders: {len(rows)}")
@@ -114,7 +120,7 @@ class DebugPanel(QWidget):
                     rows,
                 )
 
-                r = client.get(f"{base}/debug/plans")
+                r = client.get(f"{base}/debug/plans", headers=headers)
                 j = r.json()
                 rows = j.get("items") or []
                 self.plan_meta.setText(f"Plans: {len(rows)}")
@@ -124,7 +130,7 @@ class DebugPanel(QWidget):
                     rows,
                 )
 
-                r = client.get(f"{base}/debug/themes")
+                r = client.get(f"{base}/debug/themes", headers=headers)
                 j = r.json()
                 rows = j.get("rows") or []
                 self.theme_meta.setText(f"Themes: {len(rows)}")
