@@ -90,6 +90,24 @@ def test_paint_event_safe_for_each_state(qapp: QApplication, state: str) -> None
     orb.close()
 
 
+def test_set_weather_safe_on_painter(qapp: QApplication) -> None:
+    orb = OrbWidget()
+    orb.set_weather(
+        {
+            "tempC": 12.0,
+            "tempLabel": "+12°",
+            "icon": "☁",
+            "label": "partly cloudy",
+            "place": "stub",
+        }
+    )
+    orb.resize(OrbPainterWidget.ORB_SIZE, OrbPainterWidget.ORB_SIZE)
+    orb.paintEvent(QPaintEvent(QRect(0, 0, orb.width(), orb.height())))
+    orb.set_weather(None)
+    orb.paintEvent(QPaintEvent(QRect(0, 0, orb.width(), orb.height())))
+    orb.close()
+
+
 def test_orb_web_assets_present() -> None:
     from jarvis_client.ui import orb as orb_mod
 

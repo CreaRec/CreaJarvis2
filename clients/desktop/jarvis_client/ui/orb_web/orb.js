@@ -1,6 +1,7 @@
 /**
  * my-jarvis–style holographic particle sphere (JarvisScene-inspired).
  * Bridge: window.setOrbState(state: string)
+ *         window.setWeather({ tempLabel, icon, label, place })
  */
 (function () {
   "use strict";
@@ -166,9 +167,127 @@
     return group;
   }
 
-  const ringA = makeOrbitalRing(3.5, 0xffffff, 0.35, 0.3);
+  function drawWeatherBadge(ctx, size, weather) {
+    const cx = size / 2;
+    const cy = size / 2;
+    const r = size * 0.42;
+    ctx.clearRect(0, 0, size, size);
+
+    const grad = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r);
+    grad.addColorStop(0, "rgba(0, 60, 48, 0.95)");
+    grad.addColorStop(1, "rgba(0, 12, 10, 0.92)");
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.strokeStyle = "rgba(0, 229, 176, 0.95)";
+    ctx.lineWidth = size * 0.028;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 0.86, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(0, 229, 176, 0.28)";
+    ctx.lineWidth = size * 0.01;
+    ctx.stroke();
+
+    const icon = (weather && weather.icon) || "·";
+    const temp = (weather && weather.tempLabel) || "--°";
+    const place = (weather && weather.place) || "";
+
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#00e5b0";
+    ctx.shadowColor = "rgba(0, 229, 176, 0.7)";
+    ctx.shadowBlur = size * 0.04;
+
+    const iconIsGlyph = icon.length <= 2;
+    ctx.font = iconIsGlyph
+      ? "bold " + Math.round(size * 0.22) + "px sans-serif"
+      : "600 " + Math.round(size * 0.09) + "px Orbitron, sans-serif";
+    ctx.fillText(icon, cx, cy - size * (iconIsGlyph ? 0.1 : 0.12));
+
+    ctx.font = "800 " + Math.round(size * 0.16) + "px Orbitron, sans-serif";
+    ctx.fillText(temp, cx, cy + size * (iconIsGlyph ? 0.12 : 0.06));
+
+    if (place) {
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "rgba(0, 204, 153, 0.75)";
+      ctx.font = "600 " + Math.round(size * 0.055) + "px Orbitron, sans-serif";
+      const short =
+        place.length > 14 ? place.slice(0, 12).trim() + "…" : place;
+      ctx.fillText(short.toUpperCase(), cx, cy + size * 0.28);
+    }
+    ctx.shadowBlur = 0;
+  }
+
+  function makeWeatherSatellite(radius, speed, tilt) {
+    const group = new THREE.Group();
+    group.rotation.x = tilt;
+
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(radius, 0.018, 16, 120),
+      new THREE.MeshBasicMaterial({
+        color: 0x00e5b0,
+        transparent: true,
+        opacity: 0.45,
+      })
+    );
+    ring.rotation.x = Math.PI / 2;
+    group.add(ring);
+
+    const badgeSize = 256;
+    const badgeCanvas = document.createElement("canvas");
+    badgeCanvas.width = badgeSize;
+    badgeCanvas.height = badgeSize;
+    const badgeCtx = badgeCanvas.getContext("2d");
+    drawWeatherBadge(badgeCtx, badgeSize, null);
+    const tex = new THREE.CanvasTexture(badgeCanvas);
+    tex.needsUpdate = true;
+
+    const sprite = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: tex,
+        transparent: true,
+        depthWrite: false,
+        opacity: 0.0,
+      })
+    );
+    sprite.scale.set(1.55, 1.55, 1);
+    sprite.position.set(radius, 0, 0);
+
+    const halo = new THREE.Mesh(
+      new THREE.SphereGeometry(0.42, 24, 24),
+      new THREE.MeshBasicMaterial({
+        color: 0x00e5b0,
+        transparent: true,
+        opacity: 0.0,
+      })
+    );
+    halo.position.set(radius, 0, 0);
+
+    const spinner = new THREE.Group();
+    spinner.add(halo);
+    spinner.add(sprite);
+    group.add(spinner);
+    group.visible = false;
+
+    group.userData = {
+      spinner: spinner,
+      speed: speed,
+      badgeCanvas: badgeCanvas,
+      badgeCtx: badgeCtx,
+      badgeSize: badgeSize,
+      tex: tex,
+      sprite: sprite,
+      halo: halo,
+      ready: false,
+    };
+    return group;
+  }
+
+  const weatherRing = makeWeatherSatellite(3.5, 0.28, 0.3);
   const ringB = makeOrbitalRing(4.0, 0xaaaaaa, -0.22, -0.5);
-  root.add(ringA);
+  root.add(weatherRing);
   root.add(ringB);
 
   let target = Object.assign({}, STATES.idle);
@@ -196,6 +315,34 @@
             ? "rgba(255,170,0,0.15)"
             : "rgba(0,229,176,0.12)";
     }
+  };
+
+  window.setWeather = function setWeather(payload) {
+    const data = payload && typeof payload === "object" ? payload : null;
+    const ud = weatherRing.userData;
+    if (!data || (!data.tempLabel && data.tempC == null)) {
+      ud.ready = false;
+      weatherRing.visible = false;
+      ud.sprite.material.opacity = 0;
+      ud.halo.material.opacity = 0;
+      return;
+    }
+    const weather = {
+      tempLabel:
+        data.tempLabel ||
+        (typeof data.tempC === "number"
+          ? (data.tempC > 0 ? "+" : "") + Math.round(data.tempC) + "°"
+          : "--°"),
+      icon: data.icon || "·",
+      label: data.label || "",
+      place: data.place || "",
+    };
+    drawWeatherBadge(ud.badgeCtx, ud.badgeSize, weather);
+    ud.tex.needsUpdate = true;
+    ud.ready = true;
+    weatherRing.visible = true;
+    ud.sprite.material.opacity = 0.95;
+    ud.halo.material.opacity = 0.22;
   };
 
   function ease(a, b, k) {
@@ -273,9 +420,10 @@
 
     pulseSphere(sphere, elapsed, current.energy, current.voice);
 
-    ringA.userData.spinner.rotation.z = elapsed * ringA.userData.speed * 0.35;
+    weatherRing.userData.spinner.rotation.z =
+      elapsed * weatherRing.userData.speed * 0.35;
     ringB.userData.spinner.rotation.z = elapsed * ringB.userData.speed * 0.35;
-    ringA.rotation.y = elapsed * 0.08;
+    weatherRing.rotation.y = elapsed * 0.08;
     ringB.rotation.y = -elapsed * 0.06;
 
     // Activity reads as light, not motion.

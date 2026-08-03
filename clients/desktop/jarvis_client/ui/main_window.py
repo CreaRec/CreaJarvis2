@@ -35,6 +35,7 @@ from jarvis_client.ui.bridge import SignalBridge
 from jarvis_client.ui.debug_panel import DebugPanel
 from jarvis_client.ui.orb import OrbWidget
 from jarvis_client.ui.toast import ToastBanner, TrayNotifier
+from jarvis_client.weather import current_weather
 
 DEFAULT_WS = os.environ.get("VOICE_GATEWAY_URL", "ws://127.0.0.1:8787/voice")
 DEFAULT_TOKEN = os.environ.get("JARVIS_GATEWAY_TOKEN", "")
@@ -231,6 +232,11 @@ class MainWindow(QMainWindow):
 
         self._update_buttons(connected=False)
         self._apply_conn_style("disconnected")
+        self._push_stub_weather()
+
+    def _push_stub_weather(self) -> None:
+        """Feed placeholder weather into the orbital satellite."""
+        self._orb.set_weather(current_weather().to_payload())
 
     def gateway_url(self) -> str:
         return (self._ws_input.text() or DEFAULT_WS).strip()

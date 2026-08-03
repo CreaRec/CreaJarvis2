@@ -126,6 +126,7 @@ class OrbPainterWidget(QWidget):
         self.setObjectName("orbWidget")
         self._state = "idle"
         self._visual = visual_for_state(self._state)
+        self._weather: dict | None = None
         self._phase = 0.0
         self._spin = 0.0
         self._timer = QTimer(self)
@@ -147,6 +148,10 @@ class OrbPainterWidget(QWidget):
     def set_state(self, state: str) -> None:
         self._state = state or "idle"
         self._visual = visual_for_state(self._state)
+        self.update()
+
+    def set_weather(self, payload: dict | None) -> None:
+        self._weather = payload
         self.update()
 
     def showEvent(self, event) -> None:  # noqa: N802, ANN001
@@ -252,6 +257,39 @@ class OrbPainterWidget(QWidget):
             int(core_r * 2),
         )
 
+        # Orbiting weather stub badge (2D stand-in for the WebGL satellite).
+        if self._weather:
+            weather_ang = self._spin * 0.55
+            wx = cx + math.cos(weather_ang) * ring_r * 1.22
+            wy = cy + math.sin(weather_ang) * ring_r * 1.22
+            badge_r = max(18.0, min(w, h) * 0.07)
+            badge_bg = QColor(0, 20, 18, 210)
+            painter.setBrush(badge_bg)
+            pen = QPen(accent)
+            pen.setWidthF(1.5)
+            painter.setPen(pen)
+            painter.drawEllipse(
+                int(wx - badge_r),
+                int(wy - badge_r),
+                int(badge_r * 2),
+                int(badge_r * 2),
+            )
+            temp = str(self._weather.get("tempLabel") or "--°")
+            painter.setPen(accent)
+            font = painter.font()
+            font.setFamily("Orbitron")
+            font.setBold(True)
+            font.setPointSizeF(max(7.0, badge_r * 0.42))
+            painter.setFont(font)
+            painter.drawText(
+                int(wx - badge_r),
+                int(wy - badge_r * 0.35),
+                int(badge_r * 2),
+                int(badge_r),
+                int(Qt.AlignmentFlag.AlignCenter),
+                temp,
+            )
+
 
 class Orb3DWidget(QWidget):
     """Three.js cinematic orb hosted in QWebEngineView."""
@@ -271,6 +309,7 @@ class Orb3DWidget(QWidget):
             self.setFixedSize(self.ORB_SIZE, self.ORB_SIZE)
         self._state = "idle"
         self._page_ready = False
+        self._weather: dict | None = None
 
         self._view = QWebEngineView(self)
         self._view.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, False)
@@ -306,16 +345,27 @@ class Orb3DWidget(QWidget):
         self._state = state or "idle"
         self._push_state()
 
+    def set_weather(self, payload: dict | None) -> None:
+        self._weather = payload
+        self._push_weather()
+
     def _on_load_finished(self, ok: bool) -> None:
         self._page_ready = bool(ok)
         if ok:
             self._push_state()
+            self._push_weather()
 
     def _push_state(self) -> None:
         if not self._page_ready:
             return
         payload = json.dumps(self._state)
         self._view.page().runJavaScript(f"window.setOrbState && window.setOrbState({payload});")
+
+    def _push_weather(self) -> None:
+        if not self._page_ready:
+            return
+        payload = json.dumps(self._weather)
+        self._view.page().runJavaScript(f"window.setWeather && window.setWeather({payload});")
 
 
 class OrbWidget(QWidget):
@@ -367,6 +417,11 @@ class OrbWidget(QWidget):
 
     def set_state(self, state: str) -> None:
         self._inner.set_state(state)  # type: ignore[attr-defined]
+
+    def set_weather(self, payload: dict | None) -> None:
+        setter = getattr(self._inner, "set_weather", None)
+        if callable(setter):
+            setter(payload)
 
     def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802
         # Offscreen tests call paintEvent on the public widget.

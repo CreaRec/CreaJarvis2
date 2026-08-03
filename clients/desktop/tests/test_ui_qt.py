@@ -53,6 +53,9 @@ def test_main_window_smoke(qapp: QApplication) -> None:
     assert win._fsm_label.text() == "idle"
     assert win._conn_label.text() == "OFFLINE"
     assert win._orb.state == "idle"
+    # Stub weather is pushed into the orbital satellite on startup.
+    assert getattr(win._orb._inner, "_weather", None) is not None
+    assert win._orb._inner._weather["tempLabel"] == "+12°"
     # Drive bridge without connecting transport
     win.bridge.state_changed.emit("armed")
     win.bridge.toast.emit("Напоминание", "tea", "15:00")

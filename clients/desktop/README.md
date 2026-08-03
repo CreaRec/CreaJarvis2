@@ -103,3 +103,5 @@ pytest
 | `JARVIS_OWW_THRESHOLD` | `0.05` | Soft peak cutoff (end of speech) |
 | `JARVIS_OWW_STRONG_THRESHOLD` | `0.4` | Instant wake if score is strong |
 | `QT_QPA_PLATFORM` | (system) | Set to `offscreen` for headless tests |
+
+The Main orb shows a stub weather satellite (`+12°` / cloudy) via `jarvis_client.weather.current_weather()`. Swap that function later for a live provider; the bridge is `OrbWidget.set_weather(payload)`.
