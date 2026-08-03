@@ -119,4 +119,11 @@ describe("createMemoryTools", () => {
     expect(retriever.search).toHaveBeenCalled();
     expect(store.timeline).not.toHaveBeenCalled();
   });
+
+  it("memory_search description routes trips to theme tools", () => {
+    const gw = gatewayWith(makeStore());
+    const tool = gw.listRealtimeTools().find((t) => t.name === "memory_search");
+    expect(tool?.description).toMatch(/NOT for trips/i);
+    expect(tool?.description).toMatch(/theme_list|theme_search|theme_get/);
+  });
 });

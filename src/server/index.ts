@@ -18,9 +18,11 @@ import { PlanStore, toItemPublic } from "../plans/store.js";
 import { DeviceRegistry } from "../reminders/device-registry.js";
 import { ReminderPoller } from "../reminders/poller.js";
 import { ReminderStore, toPublic } from "../reminders/store.js";
+import { DeviceStore, toPublic as toDevicePublic } from "../devices/store.js";
 import { ThemeStore } from "../themes/store.js";
 import { BraveClient } from "../search/brave-client.js";
 import { ToolGateway } from "../tools/gateway.js";
+import { createDeviceTools } from "../tools/device-tools.js";
 import { createMemoryTools } from "../tools/memory-tools.js";
 import { createPlanTools } from "../tools/plan-tools.js";
 import { createReminderTools } from "../tools/reminder-tools.js";
@@ -96,6 +98,7 @@ async function main(): Promise<void> {
     embedder,
   );
   const themeStore = new ThemeStore(prisma, embedder);
+  const deviceStore = new DeviceStore(prisma);
   const deviceRegistry = new DeviceRegistry();
   const poller = new ReminderPoller(reminderStore, deviceRegistry, config);
 
@@ -143,11 +146,18 @@ async function main(): Promise<void> {
   for (const tool of createThemeTools({ store: themeStore })) {
     tools.register(tool);
   }
+  for (const tool of createDeviceTools({
+    store: deviceStore,
+    registry: deviceRegistry,
+  })) {
+    tools.register(tool);
+  }
 
   const voice = new VoiceGateway({
     config,
     tools,
     deviceRegistry,
+    deviceStore,
     reminderStore,
     planStore,
     getInstructions: async () => {
@@ -236,6 +246,33 @@ async function main(): Promise<void> {
             JSON.stringify({
               ok: true,
               rows,
+              count: rows.length,
+            }),
+          );
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          applyCors(res);
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: message }));
+        }
+      })();
+      return;
+    }
+
+    if (url === "/debug/devices" && req.method === "GET") {
+      if (!requireDebugAuth(req, res, config.JARVIS_GATEWAY_TOKEN)) return;
+      void (async () => {
+        try {
+          const rows = await deviceStore.listForDebug(100);
+          const online = deviceRegistry.onlineIds();
+          applyCors(res);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(
+            JSON.stringify({
+              ok: true,
+              devices: rows.map((d) =>
+                toDevicePublic(d, { online: online.has(d.id) }),
+              ),
               count: rows.length,
             }),
           );

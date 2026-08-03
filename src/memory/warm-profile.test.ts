@@ -61,5 +61,9 @@ describe("buildSessionInstructions", () => {
     expect(text).toContain("kind=list");
     expect(text).toContain("checklist");
     expect(text).toContain("memory_timeline");
+    expect(text).toContain("Devices:");
+    expect(text).toContain("device_list");
+    expect(text).toContain("client Settings");
+    expect(text).not.toContain("device_update");
   });
 });

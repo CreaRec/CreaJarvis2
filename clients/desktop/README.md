@@ -47,7 +47,7 @@ python -m jarvis_client
 
 The Main orb uses **Qt WebEngine + Three.js** when available (`PySide6-Addons`). Falls back to a 2D QPainter orb if WebEngine is missing, or when `JARVIS_ORB_2D=1` / `QT_QPA_PLATFORM=offscreen` (tests).
 
-Set `JARVIS_AUTO_CONNECT=0` to skip connecting on startup. Gateway URL, household token, and device name are under **Settings**; then use **Connect** on **Main**. For another machine on the LAN, point `VOICE_GATEWAY_URL` at `ws://<core-lan-ip>:8787/voice` and use the same token. Each install persists a `deviceId` under `~/.config/crea-jarvis/device_id` (ADR-005).
+Set `JARVIS_AUTO_CONNECT=0` to skip connecting on startup. Gateway URL, household token, device name, room, and purpose are under **Settings**; then use **Connect** on **Main**. For another machine on the LAN, point `VOICE_GATEWAY_URL` at `ws://<core-lan-ip>:8787/voice` and use the same token. Each install persists a `deviceId` under `~/.config/crea-jarvis/device_id` (ADR-005) and optional meta in `device_meta.json` (ADR-006).
 
 ## UX
 
@@ -93,7 +93,9 @@ pytest
 | `VOICE_GATEWAY_URL` | `ws://127.0.0.1:8787/voice` | Gateway WS (use Core LAN IP for remote desktops) |
 | `JARVIS_GATEWAY_TOKEN` | (required) | Same household token as Core |
 | `JARVIS_DEVICE_NAME` | unset | Optional display name in `hello` |
-| `JARVIS_CONFIG_DIR` | `~/.config/crea-jarvis` | Where `device_id` is stored |
+| `JARVIS_DEVICE_ROOM` | unset | Optional room id or alias (`office`, `кухня`, …) |
+| `JARVIS_DEVICE_PURPOSE` | unset | Optional purpose in `hello` |
+| `JARVIS_CONFIG_DIR` | `~/.config/crea-jarvis` | Where `device_id` / `device_meta.json` are stored |
 | `JARVIS_AUTO_CONNECT` | `1` | Connect on startup |
 | `JARVIS_WAKE_MODEL` | `models/jarvis.tflite` | microWakeWord model |
 | `JARVIS_USE_OPENWAKEWORD` | unset | Enable hey_jarvis detector |

@@ -191,4 +191,17 @@ describe("createThemeTools", () => {
     const result = await gw.execute("theme_archive", { id: THEME_ID });
     expect(result.ok).toBe(true);
   });
+
+  it("theme tool descriptions prefer themes over memory for trips", () => {
+    const gw = gatewayWith(makeStore());
+    const byName = Object.fromEntries(
+      gw.listRealtimeTools().map((t) => [t.name, t.description]),
+    );
+    expect(byName.theme_list).toMatch(/какие поездки|kind=trip/i);
+    expect(byName.theme_list).toMatch(/memory_search/);
+    expect(byName.theme_search).toMatch(/поездка|kind=trip/i);
+    expect(byName.theme_search).toMatch(/memory_search/);
+    expect(byName.theme_get).toMatch(/trip dates|Майами/i);
+    expect(byName.theme_get).toMatch(/memory_search/);
+  });
 });

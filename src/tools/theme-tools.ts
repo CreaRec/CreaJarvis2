@@ -127,7 +127,7 @@ export function createThemeTools(deps: {
     {
       name: "theme_list",
       description:
-        "List themes (ideas/projects/trips/lists). Default: active, newest touched first.",
+        "List themes (ideas/projects/trips/lists). Use for «какие поездки», upcoming travel, active projects/ideas/lists. Prefer kind=trip for trip questions. Default: active, newest touched first. Do NOT use memory_search for trip/project notebooks.",
       parameters: {
         type: "object",
         properties: {
@@ -166,7 +166,7 @@ export function createThemeTools(deps: {
     {
       name: "theme_get",
       description:
-        "Get one theme by id, or by query. If query matches multiple, returns candidates without picking.",
+        "Get one theme by id, or by query (e.g. «Майами», trip title). Use for trip dates, packing, project status, idea details. If query matches multiple, returns candidates without picking. Prefer over memory_search for notebooks.",
       parameters: {
         type: "object",
         properties: {
@@ -215,7 +215,8 @@ export function createThemeTools(deps: {
     },
     {
       name: "theme_search",
-      description: "Search themes and their entries by topic/text.",
+      description:
+        "Search themes and their entries by topic/text. Use for «поездка в X», trip dates/plans, packing, project/idea notes — e.g. query «Майами» with kind=trip. Do NOT use memory_search for these notebooks.",
       parameters: {
         type: "object",
         properties: {

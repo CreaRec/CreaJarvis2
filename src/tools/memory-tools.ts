@@ -33,7 +33,7 @@ export function createMemoryTools(deps: {
     {
       name: "memory_search",
       description:
-        "Search long-term memory for the most relevant facts about the user, directives, or world knowledge. Use for «what do you know about X». For chronological history of what the user said over time, use memory_timeline instead.",
+        "Search long-term memory for biography, preferences, family, and standing facts (user/directives/world). Use for «что ты знаешь обо мне / про семью / предпочтения». NOT for trips, projects, ideas, or lists — those notebooks use theme_list / theme_search / theme_get (memory may have place ideas without trip dates). For chronological history of what the user said over time, use memory_timeline instead.",
       parameters: {
         type: "object",
         properties: {

@@ -8,6 +8,7 @@ import os
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -22,6 +23,13 @@ from PySide6.QtWidgets import (
 )
 
 from jarvis_client.device_id import load_or_create_device_id
+from jarvis_client.device_meta import (
+    default_display_name,
+    default_purpose,
+    default_room,
+    save_device_meta,
+)
+from jarvis_client.rooms import room_choices
 from jarvis_client.session import SessionController
 from jarvis_client.ui.bridge import SignalBridge
 from jarvis_client.ui.debug_panel import DebugPanel
@@ -30,7 +38,9 @@ from jarvis_client.ui.toast import ToastBanner, TrayNotifier
 
 DEFAULT_WS = os.environ.get("VOICE_GATEWAY_URL", "ws://127.0.0.1:8787/voice")
 DEFAULT_TOKEN = os.environ.get("JARVIS_GATEWAY_TOKEN", "")
-DEFAULT_DEVICE_NAME = os.environ.get("JARVIS_DEVICE_NAME", "")
+DEFAULT_DEVICE_NAME = default_display_name()
+DEFAULT_DEVICE_ROOM = default_room()
+DEFAULT_DEVICE_PURPOSE = default_purpose()
 
 
 class MainWindow(QMainWindow):
@@ -174,6 +184,20 @@ class MainWindow(QMainWindow):
         self._name_input = QLineEdit(DEFAULT_DEVICE_NAME)
         self._name_input.setPlaceholderText("e.g. MacBook")
         settings_layout.addWidget(self._name_input)
+        settings_layout.addWidget(QLabel("Room in home (optional)"))
+        self._room_combo = QComboBox()
+        self._room_combo.addItem("—", "")
+        for room_id, label in room_choices():
+            self._room_combo.addItem(label, room_id)
+        if DEFAULT_DEVICE_ROOM:
+            idx = self._room_combo.findData(DEFAULT_DEVICE_ROOM)
+            if idx >= 0:
+                self._room_combo.setCurrentIndex(idx)
+        settings_layout.addWidget(self._room_combo)
+        settings_layout.addWidget(QLabel("Purpose (optional)"))
+        self._purpose_input = QLineEdit(DEFAULT_DEVICE_PURPOSE)
+        self._purpose_input.setPlaceholderText("e.g. рабочий Mac")
+        settings_layout.addWidget(self._purpose_input)
         self._device_id_label = QLabel(
             f"Device ID: {load_or_create_device_id()}"
         )
@@ -185,7 +209,7 @@ class MainWindow(QMainWindow):
         settings_hint = QLabel(
             "Set Core LAN URL (ws://HOST:8787/voice) and the same "
             "JARVIS_GATEWAY_TOKEN as on the server, then Connect on Main. "
-            "See ADR-005 for multi-device hello / voice ownership."
+            "Room/purpose are sent on hello (ADR-006)."
         )
         settings_hint.setObjectName("sectionMeta")
         settings_hint.setWordWrap(True)
@@ -218,6 +242,16 @@ class MainWindow(QMainWindow):
         name = (self._name_input.text() or "").strip()
         return name or None
 
+    def device_room(self) -> str | None:
+        data = self._room_combo.currentData()
+        if isinstance(data, str) and data.strip():
+            return data.strip()
+        return None
+
+    def device_purpose(self) -> str | None:
+        purpose = (self._purpose_input.text() or "").strip()
+        return purpose or None
+
     def auto_connect(self) -> None:
         """Connect on startup using VOICE_GATEWAY_URL / Settings field."""
         self.do_connect()
@@ -226,11 +260,21 @@ class MainWindow(QMainWindow):
         self.do_disconnect()
         url = self.gateway_url()
         token = self.gateway_token()
+        display_name = self.device_display_name()
+        room = self.device_room()
+        purpose = self.device_purpose()
+        save_device_meta(
+            display_name=display_name,
+            room=room,
+            purpose=purpose,
+        )
         loop = asyncio.get_event_loop()
         c = SessionController(
             gateway_url=url,
             gateway_token=token,
-            display_name=self.device_display_name(),
+            display_name=display_name,
+            room=room,
+            purpose=purpose,
             on_log=lambda m: self.bridge.log_line.emit(m),
             on_state=lambda s: self.bridge.state_changed.emit(s),
             on_toast=lambda t, b, m: self.bridge.toast.emit(t, b, m),

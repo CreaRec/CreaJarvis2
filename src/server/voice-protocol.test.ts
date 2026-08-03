@@ -12,6 +12,9 @@ describe("parseClientInbound", () => {
         token: "secret",
         deviceId: "dev-1",
         displayName: "Mac",
+        room: "кабинет",
+        purpose: "работа",
+        kind: "desktop",
         caps: { voice: true, notify: false },
       }),
     ).toEqual({
@@ -21,9 +24,48 @@ describe("parseClientInbound", () => {
         token: "secret",
         deviceId: "dev-1",
         displayName: "Mac",
+        room: "office",
+        purpose: "работа",
+        kind: "desktop",
         caps: { voice: true, notify: false },
       },
     });
+  });
+
+  it("normalizes room aliases to catalog ids", () => {
+    expect(
+      parseClientInbound({
+        type: "hello",
+        token: "t",
+        deviceId: "d",
+        room: "Kitchen",
+      }),
+    ).toEqual({
+      ok: true,
+      message: expect.objectContaining({ room: "kitchen_living" }),
+    });
+  });
+
+  it("rejects hello with invalid room", () => {
+    expect(
+      parseClientInbound({
+        type: "hello",
+        token: "t",
+        deviceId: "d",
+        room: "basement",
+      }),
+    ).toEqual({ ok: false, error: "hello invalid room" });
+  });
+
+  it("rejects hello with invalid kind", () => {
+    expect(
+      parseClientInbound({
+        type: "hello",
+        token: "t",
+        deviceId: "d",
+        kind: "phone",
+      }),
+    ).toEqual({ ok: false, error: "hello invalid kind" });
   });
 
   it("defaults hello caps when omitted", () => {

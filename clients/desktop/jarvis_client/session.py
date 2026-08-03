@@ -13,6 +13,11 @@ from typing import Any
 from jarvis_client.ack import RealtimeAckPlayer
 from jarvis_client.audio_io import AudioIO, pcm16_bytes_to_b64, rms_int16
 from jarvis_client.device_id import load_or_create_device_id
+from jarvis_client.device_meta import (
+    default_display_name,
+    default_purpose,
+    default_room,
+)
 from jarvis_client.fsm import State, VoiceFsm
 from jarvis_client.gateway import GatewayClient, ResponseDoneWaiter
 from jarvis_client.goodbye import is_goodbye_utterance
@@ -37,6 +42,8 @@ class SessionController:
         gateway_token: str,
         device_id: str | None = None,
         display_name: str | None = None,
+        room: str | None = None,
+        purpose: str | None = None,
         on_log: Callable[[str], None] | None = None,
         on_state: Callable[[str], None] | None = None,
         on_toast: Callable[[str, str, str], None] | None = None,
@@ -45,9 +52,15 @@ class SessionController:
         self.gateway_url = gateway_url
         self.gateway_token = gateway_token
         self.device_id = device_id or load_or_create_device_id()
-        self.display_name = display_name or os.environ.get(
-            "JARVIS_DEVICE_NAME", ""
-        ).strip() or None
+        self.display_name = (
+            display_name
+            if display_name is not None
+            else (default_display_name() or None)
+        )
+        self.room = room if room is not None else (default_room() or None)
+        self.purpose = (
+            purpose if purpose is not None else (default_purpose() or None)
+        )
         self._on_log = on_log or (lambda m: log.info("%s", m))
         self._on_state = on_state or (lambda s: None)
         self._on_toast = on_toast
@@ -106,6 +119,9 @@ class SessionController:
             token=self.gateway_token.strip(),
             device_id=self.device_id,
             display_name=self.display_name,
+            room=self.room,
+            purpose=self.purpose,
+            kind="desktop",
         )
         if not ok:
             self.gateway.close()

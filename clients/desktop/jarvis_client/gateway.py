@@ -80,6 +80,9 @@ class GatewayClient:
         token: str,
         device_id: str,
         display_name: str | None = None,
+        room: str | None = None,
+        purpose: str | None = None,
+        kind: str = "desktop",
         timeout: float = 10.0,
     ) -> bool:
         """Send hello and wait for hello.ok. Returns True on success."""
@@ -90,6 +93,9 @@ class GatewayClient:
                 token=token,
                 device_id=device_id,
                 display_name=display_name,
+                room=room,
+                purpose=purpose,
+                kind=kind,
             )
         )
         return self.wait_hello(timeout=timeout)

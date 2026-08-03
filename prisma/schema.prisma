@@ -178,3 +178,41 @@ model ThemeEntry {
   @@index([themeId, createdAt])
   @@map("theme_entries")
 }
+
+enum DeviceKind {
+  desktop
+  pi
+  esp
+  other
+}
+
+enum DeviceRoom {
+  master_bedroom
+  master_bathroom
+  kitchen_living
+  garage
+  office
+  poker_room
+  play_room
+  kids_room
+  kids_office
+  guest_room
+}
+
+model Device {
+  id          String      @id @db.Uuid
+  displayName String
+  room        DeviceRoom?
+  purpose     String?
+  kind        DeviceKind  @default(desktop)
+  capsVoice   Boolean     @default(true)
+  capsNotify  Boolean     @default(true)
+  firstSeenAt DateTime    @default(now())
+  lastSeenAt  DateTime    @default(now())
+  archived    Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([archived, lastSeenAt])
+  @@map("devices")
+}

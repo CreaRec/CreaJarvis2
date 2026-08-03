@@ -28,6 +28,9 @@ def hello(
     token: str,
     device_id: str,
     display_name: str | None = None,
+    room: str | None = None,
+    purpose: str | None = None,
+    kind: str = "desktop",
     voice: bool = True,
     notify: bool = True,
 ) -> dict[str, Any]:
@@ -35,10 +38,15 @@ def hello(
         "type": "hello",
         "token": token,
         "deviceId": device_id,
+        "kind": kind,
         "caps": {"voice": voice, "notify": notify},
     }
     if display_name:
         msg["displayName"] = display_name
+    if room:
+        msg["room"] = room
+    if purpose:
+        msg["purpose"] = purpose
     return msg
 
 

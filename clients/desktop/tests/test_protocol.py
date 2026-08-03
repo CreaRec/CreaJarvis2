@@ -27,11 +27,20 @@ def test_audio_append() -> None:
 
 
 def test_hello_shape() -> None:
-    m = hello(token="secret-token", device_id="dev-1", display_name="Mac")
+    m = hello(
+        token="secret-token",
+        device_id="dev-1",
+        display_name="Mac",
+        room="office",
+        purpose="работа",
+    )
     assert m == {
         "type": "hello",
         "token": "secret-token",
         "deviceId": "dev-1",
+        "kind": "desktop",
         "caps": {"voice": True, "notify": True},
         "displayName": "Mac",
+        "room": "office",
+        "purpose": "работа",
     }

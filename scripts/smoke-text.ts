@@ -19,8 +19,9 @@ async function main(): Promise<void> {
     JSON.stringify({
       type: "hello",
       token: config.JARVIS_GATEWAY_TOKEN,
-      deviceId: `smoke-${randomUUID()}`,
+      deviceId: randomUUID(),
       displayName: "smoke-text",
+      kind: "other",
       caps: { voice: true, notify: true },
     }),
   );

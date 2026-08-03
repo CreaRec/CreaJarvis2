@@ -110,4 +110,17 @@ describe("DeviceRegistry", () => {
     ).toBe(false);
     expect(closed.send).not.toHaveBeenCalled();
   });
+
+  it("listConnected and onlineIds", () => {
+    const registry = new DeviceRegistry();
+    const open = fakeSocket(1);
+    const closed = fakeSocket(3);
+    registry.register("a", open, "A", { voice: true, notify: true }, {
+      room: "кухня",
+    });
+    registry.register("b", closed, "B", { voice: true, notify: true });
+    expect(registry.listConnected()).toHaveLength(2);
+    expect(registry.get("a")?.room).toBe("кухня");
+    expect([...registry.onlineIds()]).toEqual(["a"]);
+  });
 });

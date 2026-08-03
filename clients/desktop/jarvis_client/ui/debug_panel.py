@@ -1,4 +1,4 @@
-"""Debug tables for reminders / plans / themes + session log."""
+"""Debug tables for reminders / plans / themes / devices + session log."""
 
 from __future__ import annotations
 
@@ -77,6 +77,21 @@ class DebugPanel(QWidget):
             ["kind", "status", "title", "entry_text", "id"]
         )
 
+        self.dev_meta = QLabel("Devices: —")
+        self.dev_meta.setObjectName("sectionMeta")
+        self.dev_table = QTableWidget(0, 7)
+        self.dev_table.setHorizontalHeaderLabels(
+            [
+                "online",
+                "display_name",
+                "room",
+                "room_label",
+                "purpose",
+                "kind",
+                "id",
+            ]
+        )
+
         refresh_btn = QPushButton("Refresh debug")
         refresh_btn.clicked.connect(self.refresh)
         clear_log_btn = QPushButton("Clear log")
@@ -97,6 +112,8 @@ class DebugPanel(QWidget):
         layout.addWidget(self.plan_table, stretch=1)
         layout.addWidget(self.theme_meta)
         layout.addWidget(self.theme_table, stretch=1)
+        layout.addWidget(self.dev_meta)
+        layout.addWidget(self.dev_table, stretch=1)
 
     def append_log(self, msg: str) -> None:
         stamp = datetime.now().strftime("%H:%M:%S")
@@ -137,6 +154,24 @@ class DebugPanel(QWidget):
                 _fill_table(
                     self.theme_table,
                     ["kind", "status", "title", "entry_text", "id"],
+                    rows,
+                )
+
+                r = client.get(f"{base}/debug/devices", headers=headers)
+                j = r.json()
+                rows = j.get("devices") or []
+                self.dev_meta.setText(f"Devices: {len(rows)}")
+                _fill_table(
+                    self.dev_table,
+                    [
+                        "online",
+                        "display_name",
+                        "room",
+                        "room_label",
+                        "purpose",
+                        "kind",
+                        "id",
+                    ],
                     rows,
                 )
         except Exception as err:  # noqa: BLE001

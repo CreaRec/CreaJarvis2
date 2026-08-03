@@ -15,6 +15,8 @@ export type RegisteredDevice = {
   deviceId: string;
   socket: WebSocket;
   displayName: string;
+  room: string | null;
+  purpose: string | null;
   caps: DeviceCaps;
   connectedAt: Date;
 };
@@ -37,6 +39,7 @@ export class DeviceRegistry {
     socket: WebSocket,
     displayName: string,
     caps: DeviceCaps,
+    meta?: { room?: string | null; purpose?: string | null },
   ): RegisteredDevice {
     const existing = this.devices.get(deviceId);
     if (existing && existing.socket !== socket) {
@@ -54,12 +57,29 @@ export class DeviceRegistry {
       deviceId,
       socket,
       displayName: displayName || deviceId,
+      room: meta?.room ?? null,
+      purpose: meta?.purpose ?? null,
       caps,
       connectedAt: new Date(),
     };
     this.devices.set(deviceId, entry);
     this.socketToDevice.set(socket, deviceId);
     return entry;
+  }
+
+  /** Currently connected devices (any readyState). */
+  listConnected(): RegisteredDevice[] {
+    return [...this.devices.values()];
+  }
+
+  onlineIds(): Set<string> {
+    const ids = new Set<string>();
+    for (const d of this.devices.values()) {
+      if (d.socket.readyState === 1 /* OPEN */) {
+        ids.add(d.deviceId);
+      }
+    }
+    return ids;
   }
 
   /**

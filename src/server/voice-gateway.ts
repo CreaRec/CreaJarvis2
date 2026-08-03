@@ -2,6 +2,10 @@ import { timingSafeEqual } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 import type { AppConfig } from "../config.js";
+import {
+  formatDeviceSessionBlock,
+  type DeviceStore,
+} from "../devices/store.js";
 import { RealtimeClient } from "../realtime/client.js";
 import { todayLocalDate } from "../utils/time/index.js";
 import { toItemPublic, type PlanStore } from "../plans/store.js";
@@ -49,6 +53,7 @@ export interface VoiceGatewayDeps {
   tools: ToolGateway;
   getInstructions: () => Promise<string>;
   deviceRegistry: DeviceRegistry;
+  deviceStore: DeviceStore;
   reminderStore: ReminderStore;
   planStore: PlanStore;
 }
@@ -96,6 +101,20 @@ export class VoiceGateway {
     });
   }
 
+  private async instructionsForDevice(deviceId: string): Promise<string> {
+    const base = await this.deps.getInstructions();
+    const [current, siblings] = await Promise.all([
+      this.deps.deviceStore.get(deviceId),
+      this.deps.deviceStore.list({ limit: 50 }),
+    ]);
+    const block = formatDeviceSessionBlock({
+      current,
+      onlineIds: this.deps.deviceRegistry.onlineIds(),
+      siblings,
+    });
+    return `${base}\n\n${block}`;
+  }
+
   private async handleConnection(
     socket: WebSocket,
     _req: IncomingMessage,
@@ -112,7 +131,10 @@ export class VoiceGateway {
 
     const ensureRealtime = async () => {
       if (realtime) return realtime;
-      const instructions = await this.deps.getInstructions();
+      if (!deviceId) {
+        throw new Error("deviceId required before Realtime");
+      }
+      const instructions = await this.instructionsForDevice(deviceId);
       realtime = new RealtimeClient({
         config: this.deps.config,
         instructions,
@@ -184,18 +206,26 @@ export class VoiceGateway {
               socket.close();
               return;
             }
-            const displayName = msg.displayName ?? msg.deviceId;
+            const saved = await this.deps.deviceStore.upsertFromHello({
+              deviceId: msg.deviceId,
+              displayName: msg.displayName,
+              room: msg.room,
+              purpose: msg.purpose,
+              kind: msg.kind,
+              caps: msg.caps,
+            });
             this.deps.deviceRegistry.register(
-              msg.deviceId,
+              saved.id,
               socket,
-              displayName,
+              saved.displayName,
               msg.caps,
+              { room: saved.room, purpose: saved.purpose },
             );
-            deviceId = msg.deviceId;
+            deviceId = saved.id;
             helloDone = true;
             send({
               type: "hello.ok",
-              deviceId: msg.deviceId,
+              deviceId: saved.id,
               serverTime: new Date().toISOString(),
             });
             try {

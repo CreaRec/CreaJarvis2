@@ -25,11 +25,14 @@ After WS connect, the first inbound message **must** be:
   "token": "<JARVIS_GATEWAY_TOKEN>",
   "deviceId": "<stable-uuid>",
   "displayName": "optional",
+  "room": "optional catalog id or alias (ADR-006)",
+  "purpose": "optional",
+  "kind": "desktop|pi|esp|other",
   "caps": { "voice": true, "notify": true }
 }
 ```
 
-Core replies `hello.ok` `{ deviceId, serverTime }` and registers the device in `DeviceRegistry`. Invalid/missing token → `error` + close. Reconnect with the same `deviceId` replaces the previous socket (one device = one connection).
+Core replies `hello.ok` `{ deviceId, serverTime }`, upserts a persistent `Device` row ([ADR-006](ADR-006-devices.md)), and registers the live socket in `DeviceRegistry`. Invalid/missing token → `error` + close. Reconnect with the same `deviceId` replaces the previous socket (one device = one connection).
 
 ### 3. Exclusive voice session
 
@@ -55,4 +58,4 @@ Core replies `hello.ok` `{ deviceId, serverTime }` and registers the device in `
 - Desktop must persist `deviceId`, send `hello` before any other WS traffic, and pass the token for debug HTTP.
 - `scripts/smoke-text.ts` and any LAN clients must hello first.
 - Open debug CORS without a bearer is no longer sufficient for LAN privacy.
-- Pi/ESP clients can reuse the same hello + caps contract later without Core schema changes.
+- Pi/ESP clients can reuse the same hello + caps contract later; persistent inventory is ADR-006.
