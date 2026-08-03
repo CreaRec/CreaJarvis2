@@ -20,6 +20,15 @@ else
     echo "Installing PySide6-Addons (WebGL orb)…"
     pip install "PySide6-Addons>=6.6"
   fi
+  # Ensure microWakeWord streaming stack for models/jarvis.tflite
+  if ! python -c "from pymicro_wakeword import MicroWakeWordFeatures" 2>/dev/null; then
+    echo "Installing pymicro-wakeword…"
+    pip install "pymicro-wakeword>=2.4.0"
+  fi
+  if ! python -c "import openwakeword, onnxruntime" 2>/dev/null; then
+    echo "Installing openwakeword + onnxruntime…"
+    pip install "openwakeword>=0.6.0" "onnxruntime>=1.16"
+  fi
 fi
 
 export VOICE_GATEWAY_URL="${VOICE_GATEWAY_URL:-ws://127.0.0.1:8787/voice}"

@@ -133,13 +133,18 @@ class SessionController:
         self.wake.start()
         self.log(f"connected transport {self.gateway_url} as {self.device_id}")
         if self.mww.available:
-            self.log("microWakeWord model present (streaming features TBD)")
+            self.log(
+                "microWakeWord loaded (custom «Джарвис» model) — "
+                "retrain if voice wake never fires"
+            )
         else:
             self.log(f"microWakeWord inactive: {self.mww.load_error}")
         if self.oww.available:
-            self.log("openWakeWord hey_jarvis active")
-        else:
-            self.log("wake: use Wake button / Space (or JARVIS_USE_OPENWAKEWORD=1)")
+            self.log("openWakeWord listening for «hey jarvis» / «Джарвис»")
+        elif not self.mww.available:
+            self.log(
+                f"wake: use Wake button / Space ({self.oww.load_error})"
+            )
 
     def disconnect_transport(self) -> None:
         self.wake.stop()

@@ -18,9 +18,9 @@ cd clients/desktop
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-# optional voice wake (hey jarvis ≈ Джарвис):
-pip install openwakeword
 ```
+
+First openWakeWord start may download ONNX models (~few MB).
 
 ## Run
 
@@ -38,8 +38,8 @@ source .venv/bin/activate   # create venv + pip install -r requirements.txt firs
 export VOICE_GATEWAY_URL=ws://127.0.0.1:8787/voice
 # same token as Core .env JARVIS_GATEWAY_TOKEN
 export JARVIS_GATEWAY_TOKEN=change-me-lan-token
-# optional: openWakeWord until microWakeWord streaming is wired
-export JARVIS_USE_OPENWAKEWORD=1
+# optional: disable openWakeWord (custom microWakeWord only)
+# export JARVIS_USE_OPENWAKEWORD=0
 
 python -m jarvis_client
 # opens a native Qt window with a Three.js (WebGL) cinematic orb
@@ -64,13 +64,11 @@ Reminders / plans arrive as an in-app toast banner (and a system tray message wh
 
 ## microWakeWord («Джарвис»)
 
-Target path for ESP / Raspberry:
+1. Train with [microwakeword-trainer](https://github.com/interkelstar/microwakeword-trainer).
+2. Copy `.tflite` (+ JSON) to `models/jarvis.tflite`.
+3. Desktop also enables **openWakeWord** `hey_jarvis` by default (say «hey jarvis» or «Джарвис»).
 
-1. Train with [microwakeword-trainer](https://github.com/interkelstar/microwakeword-trainer) (see `example_ru_jarvis.yaml`).
-2. Copy the `.tflite` to `models/jarvis.tflite` or set `JARVIS_WAKE_MODEL`.
-3. Install a TFLite interpreter (`tflite-runtime` or `ai-edge-litert`).
-
-The desktop client loads the file today; full streaming feature extraction (matching the trainer) is the next firmware-aligned step. Until then use **hotkey** or `JARVIS_USE_OPENWAKEWORD=1`.
+If a custom model never wakes on speech (scores stay near 0 while silence spikes), retrain — the stock `probability_cutoff: 0.9` template will not help a weak export. Tune via `models/jarvis.json` / `JARVIS_WAKE_CUTOFF`. Disable openWakeWord with `JARVIS_USE_OPENWAKEWORD=0`.
 
 ## Ack swap
 
@@ -98,5 +96,10 @@ pytest
 | `JARVIS_CONFIG_DIR` | `~/.config/crea-jarvis` | Where `device_id` / `device_meta.json` are stored |
 | `JARVIS_AUTO_CONNECT` | `1` | Connect on startup |
 | `JARVIS_WAKE_MODEL` | `models/jarvis.tflite` | microWakeWord model |
-| `JARVIS_USE_OPENWAKEWORD` | unset | Enable hey_jarvis detector |
+| `JARVIS_WAKE_CUTOFF` | from `jarvis.json` (0.32) | Detection threshold |
+| `JARVIS_WAKE_MIN_RMS` | from `jarvis.json` (500) | Ignore silence spikes |
+| `JARVIS_WAKE_DEBUG` | unset | Log peak prob / RMS each ~1s |
+| `JARVIS_USE_OPENWAKEWORD` | `1` | `0` disables hey_jarvis detector |
+| `JARVIS_OWW_THRESHOLD` | `0.05` | Soft peak cutoff (end of speech) |
+| `JARVIS_OWW_STRONG_THRESHOLD` | `0.4` | Instant wake if score is strong |
 | `QT_QPA_PLATFORM` | (system) | Set to `offscreen` for headless tests |

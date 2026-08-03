@@ -1,0 +1,12 @@
+{
+  "wake_word": "Джарвис",
+  "author": "CreaJarvis",
+  "model": "jarvis.tflite",
+  "note": "This export scores ~0 on real speech; desktop uses openWakeWord hey_jarvis until a stronger model is trained.",
+  "micro": {
+    "probability_cutoff": 0.32,
+    "sliding_window_size": 3,
+    "trained_languages": ["ru"],
+    "min_rms": 500
+  }
+}
