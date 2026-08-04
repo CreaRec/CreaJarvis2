@@ -38,7 +38,7 @@ class WeatherSnapshot:
 # Placeholder until a live weather source is wired up.
 STUB_WEATHER = WeatherSnapshot(
     temp_c=12.0,
-    icon="☁",
+    icon="",
     label="partly cloudy",
     place="stub",
 )

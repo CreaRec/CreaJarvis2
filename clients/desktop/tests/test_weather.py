@@ -9,7 +9,6 @@ def test_stub_weather_payload_shape() -> None:
     payload = snap.to_payload()
     assert payload["tempC"] == 12.0
     assert payload["tempLabel"] == "+12°"
-    assert payload["icon"]
     assert payload["label"]
     assert payload["place"] == "stub"
 

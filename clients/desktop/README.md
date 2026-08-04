@@ -104,4 +104,4 @@ pytest
 | `JARVIS_OWW_STRONG_THRESHOLD` | `0.4` | Instant wake if score is strong |
 | `QT_QPA_PLATFORM` | (system) | Set to `offscreen` for headless tests |
 
-The Main orb shows a stub weather satellite (`+12°` / cloudy) via `jarvis_client.weather.current_weather()`. Swap that function later for a live provider; the bridge is `OrbWidget.set_weather(payload)`.
+The Main orb shows a stub weather bead on ring A (`+12°`) — larger than the red beads, inset from the rim, still orbiting with them — via `jarvis_client.weather.current_weather()`. Swap that function later for a live provider; the bridge is `OrbWidget.set_weather(payload)`.

@@ -257,12 +257,13 @@ class OrbPainterWidget(QWidget):
             int(core_r * 2),
         )
 
-        # Orbiting weather stub badge (2D stand-in for the WebGL satellite).
+        # Orbiting weather bead (larger, slightly inset from the outer ring).
         if self._weather:
             weather_ang = self._spin * 0.55
-            wx = cx + math.cos(weather_ang) * ring_r * 1.22
-            wy = cy + math.sin(weather_ang) * ring_r * 1.22
-            badge_r = max(18.0, min(w, h) * 0.07)
+            orbit = ring_r * 1.05
+            wx = cx + math.cos(weather_ang) * orbit
+            wy = cy + math.sin(weather_ang) * orbit
+            badge_r = max(14.0, min(w, h) * 0.055)
             badge_bg = QColor(0, 20, 18, 210)
             painter.setBrush(badge_bg)
             pen = QPen(accent)
