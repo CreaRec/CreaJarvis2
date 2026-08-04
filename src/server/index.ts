@@ -23,6 +23,7 @@ import { ReminderStore, toPublic } from "../reminders/store.js";
 import { DeviceStore, toPublic as toDevicePublic } from "../devices/store.js";
 import { ThemeStore } from "../themes/store.js";
 import { BraveClient } from "../search/brave-client.js";
+import { GooglePlacesClient } from "../search/google-places-client.js";
 import { ToolGateway } from "../tools/gateway.js";
 import { createDeviceTools } from "../tools/device-tools.js";
 import { createMemoryTools } from "../tools/memory-tools.js";
@@ -149,7 +150,11 @@ async function main(): Promise<void> {
     config.BRAVE_COUNTRY,
     config.BRAVE_SEARCH_LANG,
   );
-  for (const tool of createSearchTools(brave)) {
+  const places = new GooglePlacesClient(
+    config.GOOGLE_PLACES_API_KEY,
+    config.BRAVE_SEARCH_LANG,
+  );
+  for (const tool of createSearchTools({ brave, places })) {
     tools.register(tool);
   }
   for (const tool of createReminderTools({

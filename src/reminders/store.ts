@@ -37,6 +37,11 @@ type ReminderRow = {
   calendarUid: string | null;
   calendarHref: string | null;
   calendarEndAt: Date | null;
+  locationName: string | null;
+  locationAddress: string | null;
+  locationMapsUrl: string | null;
+  locationLat: number | null;
+  locationLon: number | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -55,6 +60,11 @@ function toRecord(row: ReminderRow): ReminderRecord {
     calendarUid: row.calendarUid ?? null,
     calendarHref: row.calendarHref ?? null,
     calendarEndAt: row.calendarEndAt ?? null,
+    locationName: row.locationName ?? null,
+    locationAddress: row.locationAddress ?? null,
+    locationMapsUrl: row.locationMapsUrl ?? null,
+    locationLat: row.locationLat ?? null,
+    locationLon: row.locationLon ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -75,6 +85,9 @@ export function toPublic(r: ReminderRecord): ReminderPublic {
     calendar_uid: r.calendarUid,
     has_calendar_event: Boolean(r.calendarUid),
     calendar_end_at_iso: r.calendarEndAt?.toISOString() ?? null,
+    location_name: r.locationName,
+    location_address: r.locationAddress,
+    location_maps_url: r.locationMapsUrl,
   };
 }
 
@@ -95,6 +108,11 @@ export class ReminderStore {
         recurrence: (input.recurrence ??
           undefined) as Prisma.InputJsonValue | undefined,
         quietHoursOverride: input.quietHoursOverride ?? null,
+        locationName: input.locationName ?? null,
+        locationAddress: input.locationAddress ?? null,
+        locationMapsUrl: input.locationMapsUrl ?? null,
+        locationLat: input.locationLat ?? null,
+        locationLon: input.locationLon ?? null,
       },
     });
     const record = toRecord(row);
@@ -179,6 +197,11 @@ export class ReminderStore {
       quietHoursOverride?: boolean | null;
       deliveredAt?: Date | null;
       calendarEndAt?: Date | null;
+      locationName?: string | null;
+      locationAddress?: string | null;
+      locationMapsUrl?: string | null;
+      locationLat?: number | null;
+      locationLon?: number | null;
     },
   ): Promise<ReminderRecord | null> {
     try {
@@ -196,6 +219,21 @@ export class ReminderStore {
             : {}),
           ...(patch.calendarEndAt !== undefined
             ? { calendarEndAt: patch.calendarEndAt }
+            : {}),
+          ...(patch.locationName !== undefined
+            ? { locationName: patch.locationName }
+            : {}),
+          ...(patch.locationAddress !== undefined
+            ? { locationAddress: patch.locationAddress }
+            : {}),
+          ...(patch.locationMapsUrl !== undefined
+            ? { locationMapsUrl: patch.locationMapsUrl }
+            : {}),
+          ...(patch.locationLat !== undefined
+            ? { locationLat: patch.locationLat }
+            : {}),
+          ...(patch.locationLon !== undefined
+            ? { locationLon: patch.locationLon }
             : {}),
           ...(patch.recurrence !== undefined
             ? {

@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { AppConfig } from "../config.js";
-import type { ICloudCalendarClient } from "../calendar/icloud-client.js";
+import type {
+  CalendarEventInput,
+  ICloudCalendarClient,
+} from "../calendar/icloud-client.js";
 import { formatLocal } from "../utils/time/index.js";
 import { toPublic, type ReminderStore } from "../reminders/store.js";
 import type { ReminderRecord } from "../reminders/types.js";
@@ -17,6 +20,164 @@ function eventDurationMs(reminder: ReminderRecord): number {
     if (ms > 0) return ms;
   }
   return 30 * 60 * 1000;
+}
+
+export function icsLocationFromFields(opts: {
+  locationName?: string | null;
+  locationAddress?: string | null;
+}): string | undefined {
+  const address = opts.locationAddress?.trim();
+  if (address) return address;
+  const name = opts.locationName?.trim();
+  return name || undefined;
+}
+
+export function assembleEventDescription(opts: {
+  notes?: string | null;
+  mapsUrl?: string | null;
+}): string | undefined {
+  const parts: string[] = [];
+  const notes = opts.notes?.trim();
+  if (notes) parts.push(notes);
+  const url = opts.mapsUrl?.trim();
+  if (url) parts.push(url);
+  return parts.length > 0 ? parts.join("\n") : undefined;
+}
+
+export function geoFromFields(opts: {
+  locationLat?: number | null;
+  locationLon?: number | null;
+}): { lat: number; lon: number } | undefined {
+  const lat = opts.locationLat;
+  const lon = opts.locationLon;
+  if (
+    typeof lat === "number" &&
+    Number.isFinite(lat) &&
+    typeof lon === "number" &&
+    Number.isFinite(lon)
+  ) {
+    return { lat, lon };
+  }
+  return undefined;
+}
+
+function locationChanged(
+  before: ReminderRecord,
+  after: ReminderRecord,
+): boolean {
+  return (
+    before.locationName !== after.locationName ||
+    before.locationAddress !== after.locationAddress ||
+    before.locationMapsUrl !== after.locationMapsUrl ||
+    before.locationLat !== after.locationLat ||
+    before.locationLon !== after.locationLon
+  );
+}
+
+function eventInputFromReminder(
+  reminder: ReminderRecord,
+  opts: {
+    uid: string;
+    title: string;
+    start: Date;
+    end: Date;
+    timeZone: string;
+    notes?: string | null;
+  },
+): CalendarEventInput {
+  return {
+    uid: opts.uid,
+    title: opts.title,
+    start: opts.start,
+    end: opts.end,
+    timeZone: opts.timeZone,
+    location: icsLocationFromFields(reminder),
+    geo: geoFromFields(reminder),
+    description: assembleEventDescription({
+      notes: opts.notes,
+      mapsUrl: reminder.locationMapsUrl,
+    }),
+  };
+}
+
+const locationToolFields = {
+  location_name: z.string().min(1).nullable().optional(),
+  location_address: z.string().min(1).nullable().optional(),
+  location_maps_url: z.string().url().nullable().optional(),
+  location_lat: z.number().finite().nullable().optional(),
+  location_lon: z.number().finite().nullable().optional(),
+};
+
+type LocationToolInput = {
+  location_name?: string | null;
+  location_address?: string | null;
+  location_maps_url?: string | null;
+  location_lat?: number | null;
+  location_lon?: number | null;
+};
+
+function resolveLocation(
+  reminder: ReminderRecord,
+  input: LocationToolInput,
+): Pick<
+  ReminderRecord,
+  | "locationName"
+  | "locationAddress"
+  | "locationMapsUrl"
+  | "locationLat"
+  | "locationLon"
+> {
+  return {
+    locationName:
+      input.location_name !== undefined
+        ? input.location_name
+        : reminder.locationName,
+    locationAddress:
+      input.location_address !== undefined
+        ? input.location_address
+        : reminder.locationAddress,
+    locationMapsUrl:
+      input.location_maps_url !== undefined
+        ? input.location_maps_url
+        : reminder.locationMapsUrl,
+    locationLat:
+      input.location_lat !== undefined
+        ? input.location_lat
+        : reminder.locationLat,
+    locationLon:
+      input.location_lon !== undefined
+        ? input.location_lon
+        : reminder.locationLon,
+  };
+}
+
+function locationPatchFromResolved(
+  loc: ReturnType<typeof resolveLocation>,
+  input: LocationToolInput,
+): {
+  locationName?: string | null;
+  locationAddress?: string | null;
+  locationMapsUrl?: string | null;
+  locationLat?: number | null;
+  locationLon?: number | null;
+} {
+  const patch: {
+    locationName?: string | null;
+    locationAddress?: string | null;
+    locationMapsUrl?: string | null;
+    locationLat?: number | null;
+    locationLon?: number | null;
+  } = {};
+  if (input.location_name !== undefined) patch.locationName = loc.locationName;
+  if (input.location_address !== undefined) {
+    patch.locationAddress = loc.locationAddress;
+  }
+  if (input.location_maps_url !== undefined) {
+    patch.locationMapsUrl = loc.locationMapsUrl;
+  }
+  if (input.location_lat !== undefined) patch.locationLat = loc.locationLat;
+  if (input.location_lon !== undefined) patch.locationLon = loc.locationLon;
+  return patch;
 }
 
 export async function deleteLinkedCalendarEvent(opts: {
@@ -48,18 +209,22 @@ export async function syncCalendarAfterReminderUpdate(opts: {
   const textChanged = opts.before.text !== opts.after.text;
   const timeChanged =
     opts.before.fireAt.getTime() !== opts.after.fireAt.getTime();
-  if (!textChanged && !timeChanged) {
+  const locChanged = locationChanged(opts.before, opts.after);
+  if (!textChanged && !timeChanged && !locChanged) {
     return { ok: true };
   }
   const duration = eventDurationMs(opts.before);
   const end = new Date(opts.after.fireAt.getTime() + duration);
-  const updated = await opts.calendar.updateEvent(opts.before.calendarHref, {
-    uid: opts.before.calendarUid,
-    title: opts.after.text,
-    start: opts.after.fireAt,
-    end,
-    timeZone: opts.timeZone,
-  });
+  const updated = await opts.calendar.updateEvent(
+    opts.before.calendarHref,
+    eventInputFromReminder(opts.after, {
+      uid: opts.before.calendarUid,
+      title: opts.after.text,
+      start: opts.after.fireAt,
+      end,
+      timeZone: opts.timeZone,
+    }),
+  );
   if (!updated.ok) {
     return { ok: false, error: updated.error };
   }
@@ -78,7 +243,7 @@ export function createCalendarTools(deps: {
     {
       name: "calendar_create_event",
       description:
-        "Create an Apple Calendar event linked to an existing reminder. Always call reminder_create first, then pass its reminder_id. Default duration 30 minutes; alarms at 1h and 15m before start.",
+        "Create an Apple Calendar event linked to an existing reminder. Always call reminder_create first, then pass its reminder_id. Default duration 30 minutes; alarms at 1h and 15m before start. Location fields default from the reminder (places_search → reminder_create).",
       parameters: {
         type: "object",
         properties: {
@@ -96,6 +261,20 @@ export function createCalendarTools(deps: {
             description: "Optional end ISO-8601; default start + 30 minutes",
           },
           notes: { type: "string", description: "Optional event notes" },
+          location_name: {
+            type: "string",
+            description: "Place name; defaults to reminder",
+          },
+          location_address: {
+            type: "string",
+            description: "Address for Apple Calendar LOCATION; defaults to reminder",
+          },
+          location_maps_url: {
+            type: "string",
+            description: "Google Maps URL for DESCRIPTION; defaults to reminder",
+          },
+          location_lat: { type: "number" },
+          location_lon: { type: "number" },
           raw_utterance: {
             type: "string",
             description: "Original user phrase",
@@ -111,6 +290,7 @@ export function createCalendarTools(deps: {
           end: z.string().optional(),
           notes: z.string().optional(),
           raw_utterance: z.string().optional(),
+          ...locationToolFields,
         });
         const parsed = schema.safeParse(raw);
         if (!parsed.success) {
@@ -139,17 +319,25 @@ export function createCalendarTools(deps: {
           if (!e) return { ok: false, error: "Invalid end ISO timestamp" };
           end = e;
         }
+        const loc = resolveLocation(reminder, parsed.data);
+        const withLoc: ReminderRecord = { ...reminder, ...loc };
         const uid = randomUUID();
-        const created = await deps.calendar.createEvent({
-          uid,
-          title: parsed.data.title,
-          start,
-          end,
-          description: parsed.data.notes,
-          timeZone: tz(),
-        });
+        const created = await deps.calendar.createEvent(
+          eventInputFromReminder(withLoc, {
+            uid,
+            title: parsed.data.title,
+            start,
+            end: end ?? new Date(start.getTime() + 30 * 60 * 1000),
+            timeZone: tz(),
+            notes: parsed.data.notes,
+          }),
+        );
         if (!created.ok) {
           return { ok: false, error: created.error };
+        }
+        const locPatch = locationPatchFromResolved(loc, parsed.data);
+        if (Object.keys(locPatch).length > 0) {
+          await deps.store.update(reminder.id, locPatch);
         }
         const linked = await deps.store.setCalendarLink(reminder.id, {
           uid: created.data.uid,
@@ -162,6 +350,7 @@ export function createCalendarTools(deps: {
             error: "Event created but failed to save calendar link on reminder",
           };
         }
+        const refreshed = await deps.store.getById(reminder.id);
         return {
           ok: true,
           data: {
@@ -172,7 +361,8 @@ export function createCalendarTools(deps: {
             end: created.data.end.toISOString(),
             start_local: formatLocal(start, tz()),
             end_local: formatLocal(created.data.end, tz()),
-            reminder: toPublic(linked),
+            location: icsLocationFromFields(withLoc) ?? null,
+            reminder: toPublic(refreshed ?? linked),
           },
         };
       },
@@ -229,7 +419,7 @@ export function createCalendarTools(deps: {
     {
       name: "calendar_update_event",
       description:
-        "Update an Apple Calendar event by reminder_id or event_uid. May also update the linked reminder text/fire_at.",
+        "Update an Apple Calendar event by reminder_id or event_uid. May also update the linked reminder text/fire_at/location.",
       parameters: {
         type: "object",
         properties: {
@@ -239,6 +429,11 @@ export function createCalendarTools(deps: {
           start: { type: "string" },
           end: { type: "string" },
           notes: { type: "string" },
+          location_name: { type: "string" },
+          location_address: { type: "string" },
+          location_maps_url: { type: "string" },
+          location_lat: { type: "number" },
+          location_lon: { type: "number" },
         },
       },
       handler: async (raw) => {
@@ -250,6 +445,7 @@ export function createCalendarTools(deps: {
             start: z.string().optional(),
             end: z.string().optional(),
             notes: z.string().optional(),
+            ...locationToolFields,
           })
           .refine((v) => Boolean(v.reminder_id || v.event_uid), {
             message: "Provide reminder_id or event_uid",
@@ -289,14 +485,19 @@ export function createCalendarTools(deps: {
           end = d;
         }
         const title = parsed.data.title ?? reminder.text;
-        const updated = await deps.calendar.updateEvent(reminder.calendarHref, {
-          uid: reminder.calendarUid,
-          title,
-          start,
-          end,
-          description: parsed.data.notes,
-          timeZone: tz(),
-        });
+        const loc = resolveLocation(reminder, parsed.data);
+        const withLoc: ReminderRecord = { ...reminder, ...loc };
+        const updated = await deps.calendar.updateEvent(
+          reminder.calendarHref,
+          eventInputFromReminder(withLoc, {
+            uid: reminder.calendarUid,
+            title,
+            start,
+            end,
+            timeZone: tz(),
+            notes: parsed.data.notes,
+          }),
+        );
         if (!updated.ok) {
           return { ok: false, error: updated.error };
         }
@@ -305,7 +506,15 @@ export function createCalendarTools(deps: {
           fireAt?: Date;
           calendarEndAt?: Date;
           status?: "pending";
-        } = { calendarEndAt: end };
+          locationName?: string | null;
+          locationAddress?: string | null;
+          locationMapsUrl?: string | null;
+          locationLat?: number | null;
+          locationLon?: number | null;
+        } = {
+          calendarEndAt: end,
+          ...locationPatchFromResolved(loc, parsed.data),
+        };
         if (parsed.data.title !== undefined) patch.text = title;
         if (parsed.data.start !== undefined) {
           patch.fireAt = start;
@@ -320,7 +529,8 @@ export function createCalendarTools(deps: {
             title,
             start: start.toISOString(),
             end: end.toISOString(),
-            reminder: saved ? toPublic(saved) : toPublic(reminder),
+            location: icsLocationFromFields(withLoc) ?? null,
+            reminder: saved ? toPublic(saved) : toPublic(withLoc),
           },
         };
       },

@@ -50,6 +50,23 @@ describe("buildVEventIcs", () => {
     const localStart = formatIcsLocalDateTime(start, "America/Chicago");
     expect(ics).toContain(`DTSTART;TZID=America/Chicago:${localStart}`);
   });
+
+  it("includes LOCATION and GEO when provided", () => {
+    const start = new Date("2024-06-01T20:00:00.000Z");
+    const ics = buildVEventIcs({
+      uid: "evt-2",
+      title: "Coffee",
+      start,
+      end: defaultEventEnd(start),
+      description: "https://maps.google.com/?cid=1",
+      location: "123 Lamar Blvd, Austin, TX",
+      geo: { lat: 30.27, lon: -97.74 },
+      timeZone: "America/Chicago",
+    });
+    expect(ics).toContain("LOCATION:123 Lamar Blvd\\, Austin\\, TX");
+    expect(ics).toContain("GEO:30.27;-97.74");
+    expect(ics).toContain("DESCRIPTION:https://maps.google.com/?cid=1");
+  });
 });
 
 describe("parseFirstVEvent", () => {
@@ -69,7 +86,29 @@ describe("parseFirstVEvent", () => {
     expect(parsed?.uid).toBe("abc");
     expect(parsed?.title).toBe("Hello, world");
     expect(parsed?.notes).toBe("x");
+    expect(parsed?.location).toBeNull();
+    expect(parsed?.geo).toBeNull();
     expect(parsed?.start?.toISOString()).toBe("2024-06-01T15:00:00.000Z");
     expect(parsed?.end?.toISOString()).toBe("2024-06-01T15:30:00.000Z");
+  });
+
+  it("parses LOCATION and GEO", () => {
+    const ics = [
+      "BEGIN:VCALENDAR",
+      "BEGIN:VEVENT",
+      "UID:loc-1",
+      "SUMMARY:Coffee",
+      "DTSTART;TZID=America/Chicago:20240601T150000",
+      "DTEND;TZID=America/Chicago:20240601T153000",
+      "LOCATION:123 Lamar Blvd\\, Austin\\, TX",
+      "GEO:30.27;-97.74",
+      "DESCRIPTION:https://maps.google.com/?cid=1",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+    const parsed = parseFirstVEvent(ics);
+    expect(parsed?.location).toBe("123 Lamar Blvd, Austin, TX");
+    expect(parsed?.geo).toEqual({ lat: 30.27, lon: -97.74 });
+    expect(parsed?.notes).toBe("https://maps.google.com/?cid=1");
   });
 });

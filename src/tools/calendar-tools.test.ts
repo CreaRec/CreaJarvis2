@@ -22,6 +22,7 @@ function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     BRAVE_API_KEY: "test",
     BRAVE_COUNTRY: "US",
     BRAVE_SEARCH_LANG: "ru",
+    GOOGLE_PLACES_API_KEY: "test",
     USER_TIMEZONE: "America/Chicago",
     REMINDER_MORNING_HOUR: 10,
     REMINDER_AFTERNOON_HOUR: 14,
@@ -61,6 +62,11 @@ function makeRecord(
     calendarUid: null,
     calendarHref: null,
     calendarEndAt: null,
+    locationName: null,
+    locationAddress: null,
+    locationMapsUrl: null,
+    locationLat: null,
+    locationLon: null,
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -149,6 +155,61 @@ describe("createCalendarTools", () => {
     );
   });
 
+  it("passes reminder location into createEvent and persists overrides", async () => {
+    const reminder = makeRecord({
+      locationName: "Starbucks",
+      locationAddress: "123 Lamar Blvd, Austin, TX",
+      locationMapsUrl: "https://maps.google.com/?cid=1",
+      locationLat: 30.27,
+      locationLon: -97.74,
+    });
+    const linked = makeRecord({
+      ...reminder,
+      calendarUid: "uid-loc",
+      calendarHref: "https://caldav.example/uid-loc.ics",
+      calendarEndAt: new Date("2024-01-16T16:30:00.000Z"),
+    });
+    const store = makeStore({
+      getById: vi
+        .fn()
+        .mockResolvedValueOnce(reminder)
+        .mockResolvedValue(linked),
+      update: vi.fn().mockResolvedValue(linked),
+      setCalendarLink: vi.fn().mockResolvedValue(linked),
+    });
+    const calendar = makeCalendar({
+      createEvent: vi.fn().mockResolvedValue({
+        ok: true,
+        data: {
+          uid: "uid-loc",
+          href: "https://caldav.example/uid-loc.ics",
+          end: new Date("2024-01-16T16:30:00.000Z"),
+        },
+      }),
+    });
+    const gw = new ToolGateway();
+    for (const tool of createCalendarTools({
+      calendar,
+      store,
+      config: makeConfig(),
+    })) {
+      gw.register(tool);
+    }
+    const result = await gw.execute("calendar_create_event", {
+      reminder_id: REM_ID,
+      title: "Coffee",
+      start: "2024-01-16T16:00:00.000Z",
+    });
+    expect(result.ok).toBe(true);
+    expect(calendar.createEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        location: "123 Lamar Blvd, Austin, TX",
+        geo: { lat: 30.27, lon: -97.74 },
+        description: "https://maps.google.com/?cid=1",
+      }),
+    );
+  });
+
   it("rejects create when already linked", async () => {
     const store = makeStore({
       getById: vi.fn().mockResolvedValue(
@@ -195,6 +256,8 @@ describe("createCalendarTools", () => {
               start: "2024-01-16T16:00:00.000Z",
               end: "2024-01-16T16:30:00.000Z",
               notes: null,
+              location: null,
+              geo: null,
             },
             {
               uid: "uid-b",
@@ -203,6 +266,8 @@ describe("createCalendarTools", () => {
               start: "2024-01-16T18:00:00.000Z",
               end: "2024-01-16T18:30:00.000Z",
               notes: null,
+              location: null,
+              geo: null,
             },
           ],
         },

@@ -11,17 +11,6 @@ export interface WebHit {
   snippet: string;
 }
 
-export interface PlaceHit {
-  name: string;
-  address: string;
-  rating: number | null;
-  hours: string | null;
-  distance: string | null;
-  categories: string[];
-  phone?: string;
-  url?: string;
-}
-
 export class BraveClient {
   constructor(
     private readonly apiKey: string,
@@ -52,50 +41,6 @@ export class BraveClient {
         url: r.url ?? "",
         snippet: r.description ?? "",
       }));
-
-    return { ok: true, data: { results } };
-  }
-
-  async searchPlaces(opts: {
-    query: string;
-    near?: string;
-    count: number;
-  }): Promise<BraveClientResult<{ results: PlaceHit[] }>> {
-    const params = new URLSearchParams({
-      q: opts.query,
-      count: String(opts.count),
-      country: this.country,
-      search_lang: this.searchLang,
-    });
-    if (opts.near?.trim()) {
-      params.set("location", opts.near.trim());
-    }
-
-    const raw = await this.getJson<BravePlaceResponse>(
-      `/local/place_search?${params.toString()}`,
-    );
-    if (!raw.ok) return raw;
-
-    const results: PlaceHit[] = (raw.data.results ?? [])
-      .slice(0, opts.count)
-      .map((r) => {
-        const hours = formatHours(r.opening_hours);
-        const distance =
-          r.distance?.value != null && r.distance.units
-            ? `${r.distance.value} ${r.distance.units}`
-            : null;
-        const hit: PlaceHit = {
-          name: r.title ?? "",
-          address: r.postal_address?.displayAddress ?? "",
-          rating: r.rating?.ratingValue ?? null,
-          hours,
-          distance,
-          categories: r.categories ?? [],
-        };
-        if (r.contact?.telephone) hit.phone = r.contact.telephone;
-        if (r.url) hit.url = r.url;
-        return hit;
-      });
 
     return { ok: true, data: { results } };
   }
@@ -144,34 +89,3 @@ interface BraveWebResponse {
   };
 }
 
-interface BravePlaceResponse {
-  results?: Array<{
-    title?: string;
-    url?: string;
-    postal_address?: { displayAddress?: string };
-    rating?: { ratingValue?: number };
-    opening_hours?: {
-      current_day?: Array<{
-        abbr_name?: string;
-        opens?: string;
-        closes?: string;
-      }>;
-    };
-    distance?: { value?: number; units?: string };
-    categories?: string[];
-    contact?: { telephone?: string };
-  }>;
-}
-
-function formatHours(opening?: {
-  current_day?: Array<{
-    abbr_name?: string;
-    opens?: string;
-    closes?: string;
-  }>;
-}): string | null {
-  const day = opening?.current_day?.[0];
-  if (!day?.opens || !day?.closes) return null;
-  const label = day.abbr_name ? `${day.abbr_name} ` : "";
-  return `${label}${day.opens}–${day.closes}`;
-}

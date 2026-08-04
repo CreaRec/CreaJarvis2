@@ -20,6 +20,7 @@ function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     BRAVE_API_KEY: "test",
     BRAVE_COUNTRY: "US",
     BRAVE_SEARCH_LANG: "ru",
+    GOOGLE_PLACES_API_KEY: "test",
     USER_TIMEZONE: "America/Chicago",
     REMINDER_MORNING_HOUR: 10,
     REMINDER_AFTERNOON_HOUR: 14,
@@ -57,6 +58,11 @@ function makeRecord(
     calendarUid: null,
     calendarHref: null,
     calendarEndAt: null,
+    locationName: null,
+    locationAddress: null,
+    locationMapsUrl: null,
+    locationLat: null,
+    locationLon: null,
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -150,6 +156,47 @@ describe("createReminderTools", () => {
           rawUtterance: "напомни купить молоко",
         }),
       );
+    });
+
+    it("stores location fields from places_search", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2024-01-15T18:00:00.000Z"));
+      const record = makeRecord({
+        locationName: "Starbucks",
+        locationAddress: "123 Lamar Blvd, Austin, TX",
+        locationMapsUrl: "https://maps.google.com/?cid=1",
+        locationLat: 30.27,
+        locationLon: -97.74,
+      });
+      const store = makeStore({ create: vi.fn().mockResolvedValue(record) });
+      const gw = gatewayWith(store);
+      const result = await gw.execute("reminder_create", {
+        text: "Coffee",
+        fire_at: "2024-01-16T16:00:00.000Z",
+        location_name: "Starbucks",
+        location_address: "123 Lamar Blvd, Austin, TX",
+        location_maps_url: "https://maps.google.com/?cid=1",
+        location_lat: 30.27,
+        location_lon: -97.74,
+      });
+      expect(result.ok).toBe(true);
+      expect(store.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          locationName: "Starbucks",
+          locationAddress: "123 Lamar Blvd, Austin, TX",
+          locationMapsUrl: "https://maps.google.com/?cid=1",
+          locationLat: 30.27,
+          locationLon: -97.74,
+        }),
+      );
+      if (result.ok) {
+        const data = result.data as {
+          location_name: string | null;
+          location_address: string | null;
+        };
+        expect(data.location_name).toBe("Starbucks");
+        expect(data.location_address).toBe("123 Lamar Blvd, Austin, TX");
+      }
     });
   });
 

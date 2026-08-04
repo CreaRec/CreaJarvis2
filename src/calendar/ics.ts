@@ -8,6 +8,8 @@ export interface BuildVEventInput {
   start: Date;
   end: Date;
   description?: string;
+  location?: string;
+  geo?: { lat: number; lon: number };
   timeZone: string;
 }
 
@@ -82,6 +84,16 @@ export function buildVEventIcs(input: BuildVEventInput): string {
     input.description !== undefined && input.description.length > 0
       ? escapeIcsText(input.description)
       : null;
+  const location =
+    input.location !== undefined && input.location.length > 0
+      ? escapeIcsText(input.location)
+      : null;
+  const geo =
+    input.geo &&
+    Number.isFinite(input.geo.lat) &&
+    Number.isFinite(input.geo.lon)
+      ? `${input.geo.lat};${input.geo.lon}`
+      : null;
 
   const lines = [
     "BEGIN:VCALENDAR",
@@ -97,6 +109,12 @@ export function buildVEventIcs(input: BuildVEventInput): string {
   ];
   if (description) {
     lines.push(`DESCRIPTION:${description}`);
+  }
+  if (location) {
+    lines.push(`LOCATION:${location}`);
+  }
+  if (geo) {
+    lines.push(`GEO:${geo}`);
   }
   lines.push(
     "BEGIN:VALARM",
@@ -122,6 +140,8 @@ export interface ParsedCalendarEvent {
   start: Date | null;
   end: Date | null;
   notes: string | null;
+  location: string | null;
+  geo: { lat: number; lon: number } | null;
 }
 
 function unescapeIcsText(value: string): string {
@@ -157,6 +177,16 @@ function propValue(block: string, name: string): string | null {
   return m?.[1]?.trim() ?? null;
 }
 
+function parseGeo(raw: string | null): { lat: number; lon: number } | null {
+  if (!raw) return null;
+  const m = /^(-?\d+(?:\.\d+)?)\s*;\s*(-?\d+(?:\.\d+)?)$/.exec(raw.trim());
+  if (!m) return null;
+  const lat = Number(m[1]);
+  const lon = Number(m[2]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  return { lat, lon };
+}
+
 /** Extract the first VEVENT from an iCalendar payload. */
 export function parseFirstVEvent(ics: string): ParsedCalendarEvent | null {
   const unfolded = unfoldIcs(ics.replace(/\r\n/g, "\n"));
@@ -167,6 +197,7 @@ export function parseFirstVEvent(ics: string): ParsedCalendarEvent | null {
   if (!uid) return null;
   const summary = propValue(block, "SUMMARY");
   const description = propValue(block, "DESCRIPTION");
+  const location = propValue(block, "LOCATION");
   const dtStart = propValue(block, "DTSTART");
   const dtEnd = propValue(block, "DTEND");
   return {
@@ -175,5 +206,7 @@ export function parseFirstVEvent(ics: string): ParsedCalendarEvent | null {
     start: dtStart ? parseIcsDateTime(dtStart) : null,
     end: dtEnd ? parseIcsDateTime(dtEnd) : null,
     notes: description ? unescapeIcsText(description) : null,
+    location: location ? unescapeIcsText(location) : null,
+    geo: parseGeo(propValue(block, "GEO")),
   };
 }

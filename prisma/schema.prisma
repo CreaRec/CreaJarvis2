@@ -72,6 +72,11 @@ model Reminder {
   calendarUid          String?
   calendarHref         String?
   calendarEndAt        DateTime?
+  locationName         String?
+  locationAddress      String?
+  locationMapsUrl      String?
+  locationLat          Float?
+  locationLon          Float?
   embedding            Unsupported("vector(1536)")?
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt

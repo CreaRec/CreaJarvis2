@@ -15,6 +15,8 @@ export interface CalendarEventInput {
   start: Date;
   end?: Date;
   description?: string;
+  location?: string;
+  geo?: { lat: number; lon: number };
   timeZone: string;
 }
 
@@ -25,6 +27,8 @@ export interface CalendarEventListItem {
   start: string | null;
   end: string | null;
   notes: string | null;
+  location: string | null;
+  geo: { lat: number; lon: number } | null;
 }
 
 export interface ICloudCalendarClient {
@@ -49,6 +53,19 @@ function joinHref(calendarUrl: string, filename: string): string {
 }
 
 type DavSession = Awaited<ReturnType<typeof createDAVClient>>;
+
+function toIcsInput(input: CalendarEventInput, end: Date) {
+  return {
+    uid: input.uid,
+    title: input.title,
+    start: input.start,
+    end,
+    description: input.description,
+    location: input.location,
+    geo: input.geo,
+    timeZone: input.timeZone,
+  };
+}
 
 export class TsdavICloudCalendarClient implements ICloudCalendarClient {
   private client: DavSession | null = null;
@@ -83,14 +100,7 @@ export class TsdavICloudCalendarClient implements ICloudCalendarClient {
   ): Promise<CalendarClientResult<{ uid: string; href: string; end: Date }>> {
     try {
       const end = defaultEventEnd(input.start, input.end);
-      const iCalString = buildVEventIcs({
-        uid: input.uid,
-        title: input.title,
-        start: input.start,
-        end,
-        description: input.description,
-        timeZone: input.timeZone,
-      });
+      const iCalString = buildVEventIcs(toIcsInput(input, end));
       const filename = `${input.uid}.ics`;
       const client = await this.getClient();
       await client.createCalendarObject({
@@ -143,6 +153,8 @@ export class TsdavICloudCalendarClient implements ICloudCalendarClient {
           start: parsed.start?.toISOString() ?? null,
           end: parsed.end?.toISOString() ?? null,
           notes: parsed.notes,
+          location: parsed.location,
+          geo: parsed.geo,
         });
       }
       return { ok: true, data: { events } };
@@ -160,14 +172,7 @@ export class TsdavICloudCalendarClient implements ICloudCalendarClient {
   ): Promise<CalendarClientResult<{ uid: string; href: string; end: Date }>> {
     try {
       const end = defaultEventEnd(input.start, input.end);
-      const iCalString = buildVEventIcs({
-        uid: input.uid,
-        title: input.title,
-        start: input.start,
-        end,
-        description: input.description,
-        timeZone: input.timeZone,
-      });
+      const iCalString = buildVEventIcs(toIcsInput(input, end));
       const client = await this.getClient();
       await client.updateCalendarObject({
         calendarObject: {

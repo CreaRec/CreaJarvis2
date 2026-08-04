@@ -84,6 +84,20 @@ export function createReminderTools(deps: {
             description:
               "Optional recurrence: daily | weekdays | weekly{days} | every_n_days | every_n_hours; optional untilDate YYYY-MM-DD",
           },
+          location_name: {
+            type: "string",
+            description: "Place name from places_search (e.g. Starbucks)",
+          },
+          location_address: {
+            type: "string",
+            description: "Formatted address from places_search",
+          },
+          location_maps_url: {
+            type: "string",
+            description: "Google Maps URL from places_search (do not read aloud)",
+          },
+          location_lat: { type: "number", description: "Latitude" },
+          location_lon: { type: "number", description: "Longitude" },
         },
         required: ["text", "fire_at"],
       },
@@ -93,6 +107,11 @@ export function createReminderTools(deps: {
           fire_at: z.string().min(1),
           raw_utterance: z.string().optional(),
           recurrence: recurrenceSchema.optional(),
+          location_name: z.string().min(1).optional(),
+          location_address: z.string().min(1).optional(),
+          location_maps_url: z.string().url().optional(),
+          location_lat: z.number().finite().optional(),
+          location_lon: z.number().finite().optional(),
         });
         const parsed = schema.safeParse(raw);
         if (!parsed.success) {
@@ -114,6 +133,11 @@ export function createReminderTools(deps: {
           timezone: tz(),
           rawUtterance: parsed.data.raw_utterance ?? null,
           recurrence: (parsed.data.recurrence as Recurrence | undefined) ?? null,
+          locationName: parsed.data.location_name ?? null,
+          locationAddress: parsed.data.location_address ?? null,
+          locationMapsUrl: parsed.data.location_maps_url ?? null,
+          locationLat: parsed.data.location_lat ?? null,
+          locationLon: parsed.data.location_lon ?? null,
         });
         return {
           ok: true,
@@ -222,7 +246,8 @@ export function createReminderTools(deps: {
     },
     {
       name: "reminder_update",
-      description: "Update reminder text, fire_at, and/or recurrence by id.",
+      description:
+        "Update reminder text, fire_at, recurrence, and/or location by id.",
       parameters: {
         type: "object",
         properties: {
@@ -230,6 +255,11 @@ export function createReminderTools(deps: {
           text: { type: "string" },
           fire_at: { type: "string" },
           recurrence: { type: "object" },
+          location_name: { type: "string" },
+          location_address: { type: "string" },
+          location_maps_url: { type: "string" },
+          location_lat: { type: "number" },
+          location_lon: { type: "number" },
         },
         required: ["id"],
       },
@@ -239,6 +269,11 @@ export function createReminderTools(deps: {
           text: z.string().min(1).optional(),
           fire_at: z.string().optional(),
           recurrence: recurrenceSchema.nullable().optional(),
+          location_name: z.string().min(1).nullable().optional(),
+          location_address: z.string().min(1).nullable().optional(),
+          location_maps_url: z.string().url().nullable().optional(),
+          location_lat: z.number().finite().nullable().optional(),
+          location_lon: z.number().finite().nullable().optional(),
         });
         const parsed = schema.safeParse(raw);
         if (!parsed.success) {
@@ -261,12 +296,41 @@ export function createReminderTools(deps: {
             parsed.data.recurrence === undefined
               ? undefined
               : ((parsed.data.recurrence as Recurrence | null) ?? null),
+          locationName:
+            parsed.data.location_name === undefined
+              ? undefined
+              : parsed.data.location_name,
+          locationAddress:
+            parsed.data.location_address === undefined
+              ? undefined
+              : parsed.data.location_address,
+          locationMapsUrl:
+            parsed.data.location_maps_url === undefined
+              ? undefined
+              : parsed.data.location_maps_url,
+          locationLat:
+            parsed.data.location_lat === undefined
+              ? undefined
+              : parsed.data.location_lat,
+          locationLon:
+            parsed.data.location_lon === undefined
+              ? undefined
+              : parsed.data.location_lon,
           status: fireAt ? "pending" : undefined,
         });
         if (!updated) {
           return { ok: false, error: "Reminder not found" };
         }
-        if (calendar && (parsed.data.text !== undefined || fireAt)) {
+        const locationChanged =
+          parsed.data.location_name !== undefined ||
+          parsed.data.location_address !== undefined ||
+          parsed.data.location_maps_url !== undefined ||
+          parsed.data.location_lat !== undefined ||
+          parsed.data.location_lon !== undefined;
+        if (
+          calendar &&
+          (parsed.data.text !== undefined || fireAt || locationChanged)
+        ) {
           const sync = await syncCalendarAfterReminderUpdate({
             calendar,
             store: deps.store,
@@ -281,6 +345,11 @@ export function createReminderTools(deps: {
               status: before.status,
               recurrence: before.recurrence,
               calendarEndAt: before.calendarEndAt,
+              locationName: before.locationName,
+              locationAddress: before.locationAddress,
+              locationMapsUrl: before.locationMapsUrl,
+              locationLat: before.locationLat,
+              locationLon: before.locationLon,
             });
             return { ok: false, error: sync.error };
           }

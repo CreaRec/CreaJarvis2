@@ -26,6 +26,11 @@ export interface ReminderRecord {
   calendarUid: string | null;
   calendarHref: string | null;
   calendarEndAt: Date | null;
+  locationName: string | null;
+  locationAddress: string | null;
+  locationMapsUrl: string | null;
+  locationLat: number | null;
+  locationLon: number | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -38,6 +43,11 @@ export interface NewReminder {
   recurrence?: Recurrence | null;
   quietHoursOverride?: boolean | null;
   status?: ReminderStatus;
+  locationName?: string | null;
+  locationAddress?: string | null;
+  locationMapsUrl?: string | null;
+  locationLat?: number | null;
+  locationLon?: number | null;
 }
 
 export interface ReminderPublic {
@@ -54,4 +64,7 @@ export interface ReminderPublic {
   calendar_uid: string | null;
   has_calendar_event: boolean;
   calendar_end_at_iso: string | null;
+  location_name: string | null;
+  location_address: string | null;
+  location_maps_url: string | null;
 }

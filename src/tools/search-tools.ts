@@ -1,4 +1,5 @@
 import type { BraveClient } from "../search/brave-client.js";
+import type { GooglePlacesClient } from "../search/google-places-client.js";
 import { type ToolDefinition, z } from "./gateway.js";
 
 const webSchema = z.object({
@@ -12,7 +13,10 @@ const placesSchema = z.object({
   count: z.number().int().min(1).max(10).optional(),
 });
 
-export function createSearchTools(client: BraveClient): ToolDefinition[] {
+export function createSearchTools(deps: {
+  brave: BraveClient;
+  places: GooglePlacesClient;
+}): ToolDefinition[] {
   return [
     {
       name: "web_search",
@@ -39,7 +43,7 @@ export function createSearchTools(client: BraveClient): ToolDefinition[] {
         if (!parsed.success) {
           return { ok: false, error: parsed.error.message };
         }
-        const result = await client.searchWeb({
+        const result = await deps.brave.searchWeb({
           query: parsed.data.query,
           count: parsed.data.count ?? 5,
         });
@@ -50,7 +54,7 @@ export function createSearchTools(client: BraveClient): ToolDefinition[] {
     {
       name: "places_search",
       description:
-        "Search for nearby businesses, restaurants, landmarks, and other points of interest. Pass near as a city/area when the user mentions a location or when home city is known.",
+        "Search Google Places for businesses, restaurants, landmarks, and POIs. Pass near as a city/area when the user mentions a location or when home city is known. Returns name, address, mapsUrl, lat/lon for calendar location fields.",
       parameters: {
         type: "object",
         properties: {
@@ -77,7 +81,7 @@ export function createSearchTools(client: BraveClient): ToolDefinition[] {
         if (!parsed.success) {
           return { ok: false, error: parsed.error.message };
         }
-        const result = await client.searchPlaces({
+        const result = await deps.places.searchPlaces({
           query: parsed.data.query,
           near: parsed.data.near,
           count: parsed.data.count ?? 5,

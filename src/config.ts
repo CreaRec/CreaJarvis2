@@ -25,6 +25,7 @@ const envSchema = z.object({
   BRAVE_API_KEY: z.string().min(1),
   BRAVE_COUNTRY: z.string().default("US"),
   BRAVE_SEARCH_LANG: z.string().default("ru"),
+  GOOGLE_PLACES_API_KEY: z.string().min(1),
   USER_TIMEZONE: z.string().default("America/Chicago"),
   REMINDER_MORNING_HOUR: z.coerce.number().int().min(0).max(23).default(10),
   REMINDER_AFTERNOON_HOUR: z.coerce.number().int().min(0).max(23).default(14),

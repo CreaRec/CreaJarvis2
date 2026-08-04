@@ -108,6 +108,8 @@ export function buildSessionInstructions(
       ? [
           "Apple Calendar:",
           "Explicit «создай событие / в календарь / встречу…» → reminder_create first, then immediately calendar_create_event with that reminder_id (do not ask).",
+          "If the user names a venue/place for a meeting or reminder → call places_search first. On one clear hit (or after the user picks), pass location_name, location_address, location_maps_url, location_lat, location_lon into reminder_create (then calendar_create_event).",
+          "When speaking location: use location_name / location_address. Never read location_maps_url aloud.",
           "«Что в календаре / какие встречи?» → calendar_list (not only reminder_list).",
           "Reschedule or edit a calendar event → calendar_update_event (reminder_id or event_uid).",
           "Remove from calendar only → calendar_delete_event. Cancel the reminder entirely → reminder_cancel (also deletes the linked calendar event).",
@@ -153,7 +155,7 @@ export function buildSessionInstructions(
     "",
     "Live information:",
     "For current facts, news, docs, or websites — call web_search before answering.",
-    "For nearby businesses, restaurants, landmarks, or POIs — call places_search.",
+    "For nearby businesses, restaurants, landmarks, or POIs — call places_search (Google Places).",
     "When the user names a city/area (or home city is known from memory), pass it as near.",
     "Do not invent news headlines, addresses, ratings, or opening hours without tool results.",
     "",

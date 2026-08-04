@@ -17,7 +17,7 @@ Personal Jarvis MVP: OpenAI Realtime voice, Prisma + Postgres/pgvector memory, D
 
 ```bash
 cp .env.example .env
-# set OPENAI_API_KEY, BRAVE_API_KEY, and JARVIS_GATEWAY_TOKEN in .env
+# set OPENAI_API_KEY, BRAVE_API_KEY, GOOGLE_PLACES_API_KEY, and JARVIS_GATEWAY_TOKEN in .env
 
 docker compose up --build -d
 docker compose ps

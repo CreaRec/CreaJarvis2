@@ -20,6 +20,7 @@ function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     BRAVE_API_KEY: "test",
     BRAVE_COUNTRY: "US",
     BRAVE_SEARCH_LANG: "ru",
+    GOOGLE_PLACES_API_KEY: "test",
     USER_TIMEZONE: "America/Chicago",
     REMINDER_MORNING_HOUR: 10,
     REMINDER_AFTERNOON_HOUR: 14,
