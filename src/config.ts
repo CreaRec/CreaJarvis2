@@ -39,9 +39,39 @@ const envSchema = z.object({
   JARVIS_WEATHER_LON: optionalFloat,
   JARVIS_WEATHER_PLACE: z.string().default(""),
   JARVIS_WEATHER_TIMEOUT: z.coerce.number().positive().default(3),
+  /** Apple ID email for iCloud CalDAV (all three ICLOUD_* must be set together). */
+  ICLOUD_CALDAV_USERNAME: z.string().default(""),
+  ICLOUD_CALDAV_PASSWORD: z.string().default(""),
+  ICLOUD_CALDAV_CALENDAR_URL: z.string().default(""),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;
+
+export type ICloudCalendarConfig =
+  | { enabled: false }
+  | {
+      enabled: true;
+      username: string;
+      password: string;
+      calendarUrl: string;
+    };
+
+/** All empty → disabled; all set → enabled; partial → throws. */
+export function resolveICloudCalendarConfig(
+  config: AppConfig,
+): ICloudCalendarConfig {
+  const username = config.ICLOUD_CALDAV_USERNAME.trim();
+  const password = config.ICLOUD_CALDAV_PASSWORD.trim();
+  const calendarUrl = config.ICLOUD_CALDAV_CALENDAR_URL.trim();
+  const set = [username, password, calendarUrl].filter((v) => v.length > 0);
+  if (set.length === 0) return { enabled: false };
+  if (set.length !== 3) {
+    throw new Error(
+      "Partial ICLOUD_CALDAV_* config: set USERNAME, PASSWORD, and CALENDAR_URL together, or leave all empty",
+    );
+  }
+  return { enabled: true, username, password, calendarUrl };
+}
 
 export function loadConfig(
   overrides: Partial<Record<keyof AppConfig, unknown>> = {},

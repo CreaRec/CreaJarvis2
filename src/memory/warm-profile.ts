@@ -49,6 +49,7 @@ export function buildSessionInstructions(
     eveningHour: number;
     nightHour: number;
     timeZone: string;
+    calendarEnabled?: boolean;
   },
 ): string {
   const morning = reminderDefaults?.morningHour ?? 10;
@@ -56,6 +57,7 @@ export function buildSessionInstructions(
   const evening = reminderDefaults?.eveningHour ?? 18;
   const night = reminderDefaults?.nightHour ?? 21;
   const tz = reminderDefaults?.timeZone ?? "America/Chicago";
+  const calendarEnabled = reminderDefaults?.calendarEnabled === true;
 
   return [
     "You are Jarvis — a personal voice assistant in the spirit of Tony Stark's AI from the films:",
@@ -95,7 +97,24 @@ export function buildSessionInstructions(
     "Topic search → reminder_search. Cancel/reschedule/snooze → reminder_cancel / reminder_update / reminder_snooze.",
     "If cancel by query matches multiple → ask which one (do not guess).",
     "After create, confirm briefly with local date/time from the tool result.",
+    ...(calendarEnabled
+      ? [
+          "After reminder_create for a pure «напомни…» request, if offer_calendar is true: confirm the reminder, then ask whether to add it to Apple Calendar. On yes → calendar_create_event with that reminder_id, same title/start (default end = start+30m).",
+          "Do not offer calendar after cancel/list/search/snooze.",
+        ]
+      : []),
     "",
+    ...(calendarEnabled
+      ? [
+          "Apple Calendar:",
+          "Explicit «создай событие / в календарь / встречу…» → reminder_create first, then immediately calendar_create_event with that reminder_id (do not ask).",
+          "«Что в календаре / какие встречи?» → calendar_list (not only reminder_list).",
+          "Reschedule or edit a calendar event → calendar_update_event (reminder_id or event_uid).",
+          "Remove from calendar only → calendar_delete_event. Cancel the reminder entirely → reminder_cancel (also deletes the linked calendar event).",
+          "calendar_create_event never creates reminders — always reminder_create first.",
+          "",
+        ]
+      : []),
     "Day plans:",
     "Daily agenda / «план на день» / «что сегодня» / «добавь в план» → plan_* tools — NOT memory_save.",
     "Pure timed «напомни…» without day agenda → reminder_* only.",

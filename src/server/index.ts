@@ -1,6 +1,8 @@
 import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { loadConfig } from "../config.js";
+import { loadConfig, resolveICloudCalendarConfig } from "../config.js";
+import { TsdavICloudCalendarClient } from "../calendar/icloud-client.js";
+import { createCalendarTools } from "../tools/calendar-tools.js";
 import {
   debugLogBuffer,
   installConsoleCapture,
@@ -87,6 +89,14 @@ function requireDebugAuth(
 
 async function main(): Promise<void> {
   const config = loadConfig();
+  const iCloud = resolveICloudCalendarConfig(config);
+  const calendarClient = iCloud.enabled
+    ? new TsdavICloudCalendarClient(
+        iCloud.username,
+        iCloud.password,
+        iCloud.calendarUrl,
+      )
+    : null;
   const store = new MemoryStore(prisma);
   const embedder = new Embedder(config);
   const retriever = createRetriever(config.MEMORY_RETRIEVER, {
@@ -117,6 +127,7 @@ async function main(): Promise<void> {
       eveningHour: config.REMINDER_EVENING_HOUR,
       nightHour: config.REMINDER_NIGHT_HOUR,
       timeZone: config.USER_TIMEZONE,
+      calendarEnabled: iCloud.enabled,
     });
     return cachedInstructions;
   };
@@ -141,8 +152,22 @@ async function main(): Promise<void> {
   for (const tool of createSearchTools(brave)) {
     tools.register(tool);
   }
-  for (const tool of createReminderTools({ store: reminderStore, config })) {
+  for (const tool of createReminderTools({
+    store: reminderStore,
+    config,
+    calendarEnabled: iCloud.enabled,
+    calendar: calendarClient,
+  })) {
     tools.register(tool);
+  }
+  if (calendarClient) {
+    for (const tool of createCalendarTools({
+      calendar: calendarClient,
+      store: reminderStore,
+      config,
+    })) {
+      tools.register(tool);
+    }
   }
   for (const tool of createPlanTools({ store: planStore, config })) {
     tools.register(tool);

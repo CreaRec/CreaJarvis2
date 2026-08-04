@@ -22,6 +22,9 @@ const reminder: ReminderPublic = {
   timezone: "America/Chicago",
   delivered_at: null,
   created_at: "2024-01-15T17:00:00.000Z",
+  calendar_uid: null,
+  has_calendar_event: false,
+  calendar_end_at_iso: null,
 };
 
 describe("DeviceRegistry", () => {

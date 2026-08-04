@@ -28,6 +28,14 @@ function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     REMINDER_QUIET_START: 22,
     REMINDER_QUIET_END: 8,
     REMINDER_POLL_MS: 15000,
+    JARVIS_WEATHER: "1",
+    JARVIS_WEATHER_LAT: undefined,
+    JARVIS_WEATHER_LON: undefined,
+    JARVIS_WEATHER_PLACE: "",
+    JARVIS_WEATHER_TIMEOUT: 3,
+    ICLOUD_CALDAV_USERNAME: "",
+    ICLOUD_CALDAV_PASSWORD: "",
+    ICLOUD_CALDAV_CALENDAR_URL: "",
     ...overrides,
   };
 }
@@ -46,6 +54,9 @@ function makeRecord(
     recurrence: null,
     quietHoursOverride: null,
     deliveredAt: null,
+    calendarUid: null,
+    calendarHref: null,
+    calendarEndAt: null,
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -55,20 +66,26 @@ function makeRecord(
 function makeStore(
   overrides: Partial<{
     create: ReminderStore["create"];
+    getById: ReminderStore["getById"];
     list: ReminderStore["list"];
     search: ReminderStore["search"];
     update: ReminderStore["update"];
     cancel: ReminderStore["cancel"];
     cancelMany: ReminderStore["cancelMany"];
+    listForCancelMany: ReminderStore["listForCancelMany"];
+    clearCalendarLink: ReminderStore["clearCalendarLink"];
   }> = {},
 ): ReminderStore {
   return {
     create: vi.fn(),
+    getById: vi.fn(),
     list: vi.fn(),
     search: vi.fn(),
     update: vi.fn(),
     cancel: vi.fn(),
     cancelMany: vi.fn(),
+    listForCancelMany: vi.fn(),
+    clearCalendarLink: vi.fn(),
     ...overrides,
   } as unknown as ReminderStore;
 }
@@ -138,8 +155,12 @@ describe("createReminderTools", () => {
 
   describe("reminder_cancel", () => {
     it("cancels by id", async () => {
+      const pending = makeRecord();
       const record = makeRecord({ status: "cancelled" });
-      const store = makeStore({ cancel: vi.fn().mockResolvedValue(record) });
+      const store = makeStore({
+        getById: vi.fn().mockResolvedValue(pending),
+        cancel: vi.fn().mockResolvedValue(record),
+      });
       const gw = gatewayWith(store);
       const result = await gw.execute("reminder_cancel", { id: record.id });
       expect(result.ok).toBe(true);
@@ -171,6 +192,7 @@ describe("createReminderTools", () => {
       const record = makeRecord();
       const store = makeStore({
         search: vi.fn().mockResolvedValue([record]),
+        getById: vi.fn().mockResolvedValue(record),
         cancel: vi
           .fn()
           .mockResolvedValue({ ...record, status: "cancelled" as const }),

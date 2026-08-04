@@ -24,7 +24,7 @@ function parseRecurrence(value: unknown): Recurrence | null {
   return value as Recurrence;
 }
 
-function toRecord(row: {
+type ReminderRow = {
   id: string;
   text: string;
   fireAt: Date;
@@ -34,9 +34,14 @@ function toRecord(row: {
   recurrence: Prisma.JsonValue;
   quietHoursOverride: boolean | null;
   deliveredAt: Date | null;
+  calendarUid: string | null;
+  calendarHref: string | null;
+  calendarEndAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
-}): ReminderRecord {
+};
+
+function toRecord(row: ReminderRow): ReminderRecord {
   return {
     id: row.id,
     text: row.text,
@@ -47,6 +52,9 @@ function toRecord(row: {
     recurrence: parseRecurrence(row.recurrence),
     quietHoursOverride: row.quietHoursOverride,
     deliveredAt: row.deliveredAt,
+    calendarUid: row.calendarUid ?? null,
+    calendarHref: row.calendarHref ?? null,
+    calendarEndAt: row.calendarEndAt ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -64,6 +72,9 @@ export function toPublic(r: ReminderRecord): ReminderPublic {
     timezone: r.timezone,
     delivered_at: r.deliveredAt?.toISOString() ?? null,
     created_at: r.createdAt.toISOString(),
+    calendar_uid: r.calendarUid,
+    has_calendar_event: Boolean(r.calendarUid),
+    calendar_end_at_iso: r.calendarEndAt?.toISOString() ?? null,
   };
 }
 
@@ -96,6 +107,22 @@ export class ReminderStore {
     return row ? toRecord(row) : null;
   }
 
+  async getByCalendarUid(uid: string): Promise<ReminderRecord | null> {
+    const row = await this.db.reminder.findUnique({
+      where: { calendarUid: uid },
+    });
+    return row ? toRecord(row) : null;
+  }
+
+  async getByCalendarUids(uids: string[]): Promise<ReminderRecord[]> {
+    const unique = [...new Set(uids.filter((u) => u.length > 0))];
+    if (unique.length === 0) return [];
+    const rows = await this.db.reminder.findMany({
+      where: { calendarUid: { in: unique } },
+    });
+    return rows.map(toRecord);
+  }
+
   async getByIds(ids: string[]): Promise<ReminderRecord[]> {
     if (ids.length === 0) return [];
     const rows = await this.db.reminder.findMany({
@@ -107,6 +134,41 @@ export class ReminderStore {
       .filter((r): r is ReminderRecord => Boolean(r));
   }
 
+  async setCalendarLink(
+    id: string,
+    link: { uid: string; href: string; endAt: Date },
+  ): Promise<ReminderRecord | null> {
+    try {
+      const row = await this.db.reminder.update({
+        where: { id },
+        data: {
+          calendarUid: link.uid,
+          calendarHref: link.href,
+          calendarEndAt: link.endAt,
+        },
+      });
+      return toRecord(row);
+    } catch {
+      return null;
+    }
+  }
+
+  async clearCalendarLink(id: string): Promise<ReminderRecord | null> {
+    try {
+      const row = await this.db.reminder.update({
+        where: { id },
+        data: {
+          calendarUid: null,
+          calendarHref: null,
+          calendarEndAt: null,
+        },
+      });
+      return toRecord(row);
+    } catch {
+      return null;
+    }
+  }
+
   async update(
     id: string,
     patch: {
@@ -116,6 +178,7 @@ export class ReminderStore {
       status?: ReminderStatus;
       quietHoursOverride?: boolean | null;
       deliveredAt?: Date | null;
+      calendarEndAt?: Date | null;
     },
   ): Promise<ReminderRecord | null> {
     try {
@@ -130,6 +193,9 @@ export class ReminderStore {
             : {}),
           ...(patch.deliveredAt !== undefined
             ? { deliveredAt: patch.deliveredAt }
+            : {}),
+          ...(patch.calendarEndAt !== undefined
+            ? { calendarEndAt: patch.calendarEndAt }
             : {}),
           ...(patch.recurrence !== undefined
             ? {
@@ -223,6 +289,29 @@ export class ReminderStore {
       data: { status: "cancelled" },
     });
     return result.count;
+  }
+
+  /** Reminders that would be cancelled by cancelMany (for calendar sync). */
+  async listForCancelMany(opts: {
+    scope: "today" | "all_pending" | "range";
+    from?: Date;
+    to?: Date;
+    todayStart?: Date;
+    todayEnd?: Date;
+  }): Promise<ReminderRecord[]> {
+    const where: Prisma.ReminderWhereInput = {
+      status: { in: ["pending", "snoozed", "missed", "delivering"] },
+    };
+    if (opts.scope === "today" && opts.todayStart && opts.todayEnd) {
+      where.fireAt = { gte: opts.todayStart, lt: opts.todayEnd };
+    } else if (opts.scope === "range") {
+      where.fireAt = {
+        ...(opts.from ? { gte: opts.from } : {}),
+        ...(opts.to ? { lte: opts.to } : {}),
+      };
+    }
+    const rows = await this.db.reminder.findMany({ where });
+    return rows.map(toRecord);
   }
 
   async keywordSearch(query: string, limit: number): Promise<ReminderRecord[]> {
@@ -319,21 +408,7 @@ export class ReminderStore {
   async claimDue(now: Date, limit = 20): Promise<ReminderRecord[]> {
     // Do NOT RETURNING * — Prisma cannot deserialize Unsupported("vector").
     // Also re-claim stuck `delivering` rows (e.g. after a failed RETURNING).
-    const rows = await this.db.$queryRawUnsafe<
-      Array<{
-        id: string;
-        text: string;
-        fireAt: Date;
-        timezone: string;
-        status: PrismaStatus;
-        rawUtterance: string | null;
-        recurrence: Prisma.JsonValue;
-        quietHoursOverride: boolean | null;
-        deliveredAt: Date | null;
-        createdAt: Date;
-        updatedAt: Date;
-      }>
-    >(
+    const rows = await this.db.$queryRawUnsafe<ReminderRow[]>(
       `UPDATE "reminders"
        SET status = 'delivering', "updatedAt" = NOW()
        WHERE id IN (
@@ -349,6 +424,7 @@ export class ReminderStore {
        RETURNING
          id, text, "fireAt", timezone, status, "rawUtterance",
          recurrence, "quietHoursOverride", "deliveredAt",
+         "calendarUid", "calendarHref", "calendarEndAt",
          "createdAt", "updatedAt"`,
       now,
       limit,

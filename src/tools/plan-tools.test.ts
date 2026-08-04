@@ -28,6 +28,14 @@ function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     REMINDER_QUIET_START: 22,
     REMINDER_QUIET_END: 8,
     REMINDER_POLL_MS: 15000,
+    JARVIS_WEATHER: "1",
+    JARVIS_WEATHER_LAT: undefined,
+    JARVIS_WEATHER_LON: undefined,
+    JARVIS_WEATHER_PLACE: "",
+    JARVIS_WEATHER_TIMEOUT: 3,
+    ICLOUD_CALDAV_USERNAME: "",
+    ICLOUD_CALDAV_PASSWORD: "",
+    ICLOUD_CALDAV_CALENDAR_URL: "",
     ...overrides,
   };
 }

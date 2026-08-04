@@ -69,12 +69,16 @@ model Reminder {
   recurrence           Json?
   quietHoursOverride   Boolean?
   deliveredAt          DateTime?
+  calendarUid          String?
+  calendarHref         String?
+  calendarEndAt        DateTime?
   embedding            Unsupported("vector(1536)")?
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
 
   @@index([status, fireAt])
   @@index([fireAt])
+  @@unique([calendarUid])
   @@map("reminders")
 }
 

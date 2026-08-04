@@ -65,5 +65,21 @@ describe("buildSessionInstructions", () => {
     expect(text).toContain("device_list");
     expect(text).toContain("client Settings");
     expect(text).not.toContain("device_update");
+    expect(text).not.toContain("Apple Calendar:");
+  });
+
+  it("includes Apple Calendar rules when enabled", () => {
+    const text = buildSessionInstructions("", {
+      morningHour: 10,
+      afternoonHour: 14,
+      eveningHour: 18,
+      nightHour: 21,
+      timeZone: "America/Chicago",
+      calendarEnabled: true,
+    });
+    expect(text).toContain("Apple Calendar:");
+    expect(text).toContain("calendar_create_event");
+    expect(text).toContain("offer_calendar");
+    expect(text).toContain("calendar_list");
   });
 });

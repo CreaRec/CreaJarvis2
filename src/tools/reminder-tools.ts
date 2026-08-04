@@ -1,4 +1,5 @@
 import type { AppConfig } from "../config.js";
+import type { ICloudCalendarClient } from "../calendar/icloud-client.js";
 import {
   addDaysLocal,
   formatLocal,
@@ -7,6 +8,10 @@ import {
 } from "../utils/time/index.js";
 import { toPublic, type ReminderStore } from "../reminders/store.js";
 import type { Recurrence } from "../reminders/types.js";
+import {
+  deleteLinkedCalendarEvent,
+  syncCalendarAfterReminderUpdate,
+} from "./calendar-tools.js";
 import { type ToolDefinition, z } from "./gateway.js";
 
 const recurrenceSchema = z.discriminatedUnion("kind", [
@@ -50,8 +55,12 @@ function todayBounds(timezone: string, now = new Date()): { start: Date; end: Da
 export function createReminderTools(deps: {
   store: ReminderStore;
   config: AppConfig;
+  calendarEnabled?: boolean;
+  calendar?: ICloudCalendarClient | null;
 }): ToolDefinition[] {
   const tz = () => deps.config.USER_TIMEZONE;
+  const calendarEnabled = Boolean(deps.calendarEnabled && deps.calendar);
+  const calendar = deps.calendar ?? null;
 
   return [
     {
@@ -106,7 +115,10 @@ export function createReminderTools(deps: {
           rawUtterance: parsed.data.raw_utterance ?? null,
           recurrence: (parsed.data.recurrence as Recurrence | undefined) ?? null,
         });
-        return { ok: true, data: toPublic(record) };
+        return {
+          ok: true,
+          data: { ...toPublic(record), offer_calendar: calendarEnabled },
+        };
       },
     },
     {
@@ -232,6 +244,10 @@ export function createReminderTools(deps: {
         if (!parsed.success) {
           return { ok: false, error: parsed.error.message };
         }
+        const before = await deps.store.getById(parsed.data.id);
+        if (!before) {
+          return { ok: false, error: "Reminder not found" };
+        }
         let fireAt: Date | undefined;
         if (parsed.data.fire_at) {
           const d = parseFireAt(parsed.data.fire_at);
@@ -249,6 +265,30 @@ export function createReminderTools(deps: {
         });
         if (!updated) {
           return { ok: false, error: "Reminder not found" };
+        }
+        if (calendar && (parsed.data.text !== undefined || fireAt)) {
+          const sync = await syncCalendarAfterReminderUpdate({
+            calendar,
+            store: deps.store,
+            before,
+            after: updated,
+            timeZone: tz(),
+          });
+          if (!sync.ok) {
+            await deps.store.update(before.id, {
+              text: before.text,
+              fireAt: before.fireAt,
+              status: before.status,
+              recurrence: before.recurrence,
+              calendarEndAt: before.calendarEndAt,
+            });
+            return { ok: false, error: sync.error };
+          }
+          const refreshed = await deps.store.getById(updated.id);
+          return {
+            ok: true,
+            data: toPublic(refreshed ?? updated),
+          };
         }
         return { ok: true, data: toPublic(updated) };
       },
@@ -277,12 +317,40 @@ export function createReminderTools(deps: {
         if (!parsed.success) {
           return { ok: false, error: parsed.error.message };
         }
-        if (parsed.data.id) {
-          const cancelled = await deps.store.cancel(parsed.data.id);
-          if (!cancelled) {
-            return { ok: false, error: "Reminder not found" };
+
+        const cancelOne = async (id: string) => {
+          const current = await deps.store.getById(id);
+          if (!current) {
+            return { ok: false as const, error: "Reminder not found" };
           }
-          return { ok: true, data: toPublic(cancelled) };
+          let calendarDeleteError: string | undefined;
+          if (calendar && current.calendarHref) {
+            const del = await deleteLinkedCalendarEvent({
+              calendar,
+              store: deps.store,
+              reminder: current,
+            });
+            if (!del.deleted && del.error) {
+              calendarDeleteError = del.error;
+            }
+          }
+          const cancelled = await deps.store.cancel(id);
+          if (!cancelled) {
+            return { ok: false as const, error: "Reminder not found" };
+          }
+          return {
+            ok: true as const,
+            data: {
+              ...toPublic(cancelled),
+              ...(calendarDeleteError
+                ? { calendar_delete_error: calendarDeleteError }
+                : {}),
+            },
+          };
+        };
+
+        if (parsed.data.id) {
+          return cancelOne(parsed.data.id);
         }
         const hits = await deps.store.search(parsed.data.query!, 10);
         if (hits.length === 0) {
@@ -297,8 +365,7 @@ export function createReminderTools(deps: {
             },
           };
         }
-        const cancelled = await deps.store.cancel(hits[0]!.id);
-        return { ok: true, data: cancelled ? toPublic(cancelled) : null };
+        return cancelOne(hits[0]!.id);
       },
     },
     {
@@ -379,14 +446,37 @@ export function createReminderTools(deps: {
           return { ok: false, error: parsed.error.message };
         }
         const timezone = tz();
+
         if (parsed.data.scope === "today") {
           const { start, end } = todayBounds(timezone);
-          const count = await deps.store.cancelMany({
-            scope: "today",
+          const opts = {
+            scope: "today" as const,
             todayStart: start,
             todayEnd: end,
-          });
-          return { ok: true, data: { cancelled: count } };
+          };
+          let calendar_delete_errors = 0;
+          if (calendar) {
+            const targets = await deps.store.listForCancelMany(opts);
+            for (const rem of targets) {
+              if (!rem.calendarHref) continue;
+              const del = await deleteLinkedCalendarEvent({
+                calendar,
+                store: deps.store,
+                reminder: rem,
+              });
+              if (!del.deleted && del.error) calendar_delete_errors += 1;
+            }
+          }
+          const count = await deps.store.cancelMany(opts);
+          return {
+            ok: true,
+            data: {
+              cancelled: count,
+              ...(calendar_delete_errors > 0
+                ? { calendar_delete_errors }
+                : {}),
+            },
+          };
         }
         if (parsed.data.scope === "range") {
           const from = parsed.data.from
@@ -399,15 +489,59 @@ export function createReminderTools(deps: {
           if (parsed.data.to && !to) {
             return { ok: false, error: "Invalid to" };
           }
-          const count = await deps.store.cancelMany({
-            scope: "range",
+          const opts = {
+            scope: "range" as const,
             from: from ?? undefined,
             to: to ?? undefined,
-          });
-          return { ok: true, data: { cancelled: count } };
+          };
+          let calendar_delete_errors = 0;
+          if (calendar) {
+            const targets = await deps.store.listForCancelMany(opts);
+            for (const rem of targets) {
+              if (!rem.calendarHref) continue;
+              const del = await deleteLinkedCalendarEvent({
+                calendar,
+                store: deps.store,
+                reminder: rem,
+              });
+              if (!del.deleted && del.error) calendar_delete_errors += 1;
+            }
+          }
+          const count = await deps.store.cancelMany(opts);
+          return {
+            ok: true,
+            data: {
+              cancelled: count,
+              ...(calendar_delete_errors > 0
+                ? { calendar_delete_errors }
+                : {}),
+            },
+          };
         }
-        const count = await deps.store.cancelMany({ scope: "all_pending" });
-        return { ok: true, data: { cancelled: count } };
+        const opts = { scope: "all_pending" as const };
+        let calendar_delete_errors = 0;
+        if (calendar) {
+          const targets = await deps.store.listForCancelMany(opts);
+          for (const rem of targets) {
+            if (!rem.calendarHref) continue;
+            const del = await deleteLinkedCalendarEvent({
+              calendar,
+              store: deps.store,
+              reminder: rem,
+            });
+            if (!del.deleted && del.error) calendar_delete_errors += 1;
+          }
+        }
+        const count = await deps.store.cancelMany(opts);
+        return {
+          ok: true,
+          data: {
+            cancelled: count,
+            ...(calendar_delete_errors > 0
+              ? { calendar_delete_errors }
+              : {}),
+          },
+        };
       },
     },
   ];

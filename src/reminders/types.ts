@@ -23,6 +23,9 @@ export interface ReminderRecord {
   recurrence: Recurrence | null;
   quietHoursOverride: boolean | null;
   deliveredAt: Date | null;
+  calendarUid: string | null;
+  calendarHref: string | null;
+  calendarEndAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -48,4 +51,7 @@ export interface ReminderPublic {
   timezone: string;
   delivered_at: string | null;
   created_at: string;
+  calendar_uid: string | null;
+  has_calendar_event: boolean;
+  calendar_end_at_iso: string | null;
 }
