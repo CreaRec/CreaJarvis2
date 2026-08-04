@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QComboBox,
@@ -35,13 +35,15 @@ from jarvis_client.ui.bridge import SignalBridge
 from jarvis_client.ui.debug_panel import DebugPanel
 from jarvis_client.ui.orb import OrbWidget
 from jarvis_client.ui.toast import ToastBanner, TrayNotifier
-from jarvis_client.weather import current_weather
+from jarvis_client.weather import clear_weather_cache, current_weather
 
 DEFAULT_WS = os.environ.get("VOICE_GATEWAY_URL", "ws://127.0.0.1:8787/voice")
 DEFAULT_TOKEN = os.environ.get("JARVIS_GATEWAY_TOKEN", "")
 DEFAULT_DEVICE_NAME = default_display_name()
 DEFAULT_DEVICE_ROOM = default_room()
 DEFAULT_DEVICE_PURPOSE = default_purpose()
+# Refresh orb weather from Open-Meteo once per hour while the client is open.
+WEATHER_REFRESH_MS = 60 * 60 * 1000
 
 
 class MainWindow(QMainWindow):
@@ -232,11 +234,21 @@ class MainWindow(QMainWindow):
 
         self._update_buttons(connected=False)
         self._apply_conn_style("disconnected")
-        self._push_stub_weather()
 
-    def _push_stub_weather(self) -> None:
-        """Feed placeholder weather into the orbital satellite."""
+        self._weather_timer = QTimer(self)
+        self._weather_timer.setInterval(WEATHER_REFRESH_MS)
+        self._weather_timer.timeout.connect(self._refresh_weather)
+        self._weather_timer.start()
+        self._push_weather()
+
+    def _push_weather(self) -> None:
+        """Feed current weather into the orbital satellite (Open-Meteo or stub)."""
         self._orb.set_weather(current_weather().to_payload())
+
+    def _refresh_weather(self) -> None:
+        """Hourly refresh: bypass in-memory cache and update the orb."""
+        clear_weather_cache()
+        self._push_weather()
 
     def gateway_url(self) -> str:
         return (self._ws_input.text() or DEFAULT_WS).strip()

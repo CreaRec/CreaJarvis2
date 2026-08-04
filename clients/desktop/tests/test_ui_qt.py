@@ -15,7 +15,10 @@ pytest.importorskip("PySide6")
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from jarvis_client.ui.bridge import SignalBridge  # noqa: E402
-from jarvis_client.ui.main_window import MainWindow  # noqa: E402
+from jarvis_client.ui.main_window import (  # noqa: E402
+    WEATHER_REFRESH_MS,
+    MainWindow,
+)
 
 
 @pytest.fixture(scope="module")
@@ -53,9 +56,12 @@ def test_main_window_smoke(qapp: QApplication) -> None:
     assert win._fsm_label.text() == "idle"
     assert win._conn_label.text() == "OFFLINE"
     assert win._orb.state == "idle"
-    # Stub weather is pushed into the orbital satellite on startup.
+    # Weather bead is pushed into the orbital satellite on startup (stub in tests).
     assert getattr(win._orb._inner, "_weather", None) is not None
     assert win._orb._inner._weather["tempLabel"] == "+12°"
+    assert win._weather_timer.isActive()
+    assert win._weather_timer.interval() == WEATHER_REFRESH_MS
+    assert WEATHER_REFRESH_MS == 60 * 60 * 1000
     # Drive bridge without connecting transport
     win.bridge.state_changed.emit("armed")
     win.bridge.toast.emit("Напоминание", "tea", "15:00")
@@ -74,4 +80,45 @@ def test_main_window_smoke(qapp: QApplication) -> None:
     # Parent window is not shown in offscreen smoke; isHidden tracks setVisible.
     assert not win._toast_banner.isHidden()
     assert win._toast_banner._title.text() == "Напоминание"
+    win.close()
+
+
+def test_weather_hourly_refresh_clears_cache(
+    qapp: QApplication, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from jarvis_client.weather import WeatherSnapshot
+
+    calls = {"n": 0}
+    snaps = [
+        WeatherSnapshot(temp_c=12.0, icon="", label="partly cloudy", place="stub"),
+        WeatherSnapshot(temp_c=21.0, icon="0", label="clear", place="Austin"),
+    ]
+
+    def fake_weather() -> WeatherSnapshot:
+        i = min(calls["n"], len(snaps) - 1)
+        calls["n"] += 1
+        return snaps[i]
+
+    cleared = {"n": 0}
+
+    def fake_clear() -> None:
+        cleared["n"] += 1
+
+    monkeypatch.setattr(
+        "jarvis_client.ui.main_window.current_weather", fake_weather
+    )
+    monkeypatch.setattr(
+        "jarvis_client.ui.main_window.clear_weather_cache", fake_clear
+    )
+
+    win = MainWindow()
+    assert calls["n"] == 1
+    assert cleared["n"] == 0
+    assert win._orb._inner._weather["tempLabel"] == "+12°"
+
+    win._refresh_weather()
+    qapp.processEvents()
+    assert cleared["n"] == 1
+    assert calls["n"] == 2
+    assert win._orb._inner._weather["tempLabel"] == "+21°"
     win.close()
