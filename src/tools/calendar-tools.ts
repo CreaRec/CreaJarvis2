@@ -2,12 +2,28 @@ import { randomUUID } from "node:crypto";
 import type { AppConfig } from "../config.js";
 import type {
   CalendarEventInput,
+  CalendarEventPatch,
   ICloudCalendarClient,
 } from "../calendar/icloud-client.js";
+import { DEFAULT_ALARM_MINUTES_BEFORE } from "../calendar/ics.js";
 import { formatLocal } from "../utils/time/index.js";
 import { toPublic, type ReminderStore } from "../reminders/store.js";
 import type { ReminderRecord } from "../reminders/types.js";
 import { type ToolDefinition, z } from "./gateway.js";
+
+const alarmMinutesBeforeSchema = z
+  .array(z.number().int().nonnegative().max(10080))
+  .nullable()
+  .optional();
+
+/** Map tool param: omitted → undefined (client default/preserve); null → defaults; array → as-is. */
+function alarmMinutesFromToolParam(
+  value: number[] | null | undefined,
+): number[] | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return [...DEFAULT_ALARM_MINUTES_BEFORE];
+  return value;
+}
 
 function parseIso(iso: string): Date | null {
   const d = new Date(iso);
@@ -83,9 +99,10 @@ function eventInputFromReminder(
     end: Date;
     timeZone: string;
     notes?: string | null;
+    alarmMinutesBefore?: number[];
   },
 ): CalendarEventInput {
-  return {
+  const input: CalendarEventInput = {
     uid: opts.uid,
     title: opts.title,
     start: opts.start,
@@ -98,6 +115,10 @@ function eventInputFromReminder(
       mapsUrl: reminder.locationMapsUrl,
     }),
   };
+  if (opts.alarmMinutesBefore !== undefined) {
+    input.alarmMinutesBefore = opts.alarmMinutesBefore;
+  }
+  return input;
 }
 
 const locationToolFields = {
@@ -243,7 +264,7 @@ export function createCalendarTools(deps: {
     {
       name: "calendar_create_event",
       description:
-        "Create an Apple Calendar event linked to an existing reminder. Always call reminder_create first, then pass its reminder_id. Default duration 30 minutes; alarms at 1h and 15m before start. Location fields default from the reminder (places_search → reminder_create).",
+        "Create an Apple Calendar event linked to an existing reminder. Always call reminder_create first, then pass its reminder_id. Default duration 30 minutes; default alarms at 1h and 15m before start (override with alarm_minutes_before: [] to clear, [30] for custom, etc.). Location fields default from the reminder (places_search → reminder_create).",
       parameters: {
         type: "object",
         properties: {
@@ -261,6 +282,12 @@ export function createCalendarTools(deps: {
             description: "Optional end ISO-8601; default start + 30 minutes",
           },
           notes: { type: "string", description: "Optional event notes" },
+          alarm_minutes_before: {
+            type: "array",
+            items: { type: "integer" },
+            description:
+              "Minutes before start for Apple Calendar alerts. Omit for default [60, 15]. Pass [] for no alerts. Pass e.g. [30] or [120, 15] for custom.",
+          },
           location_name: {
             type: "string",
             description: "Place name; defaults to reminder",
@@ -289,6 +316,7 @@ export function createCalendarTools(deps: {
           start: z.string().min(1),
           end: z.string().optional(),
           notes: z.string().optional(),
+          alarm_minutes_before: alarmMinutesBeforeSchema,
           raw_utterance: z.string().optional(),
           ...locationToolFields,
         });
@@ -330,6 +358,9 @@ export function createCalendarTools(deps: {
             end: end ?? new Date(start.getTime() + 30 * 60 * 1000),
             timeZone: tz(),
             notes: parsed.data.notes,
+            alarmMinutesBefore: alarmMinutesFromToolParam(
+              parsed.data.alarm_minutes_before,
+            ),
           }),
         );
         if (!created.ok) {
@@ -419,7 +450,7 @@ export function createCalendarTools(deps: {
     {
       name: "calendar_update_event",
       description:
-        "Update an Apple Calendar event by reminder_id or event_uid. May also update the linked reminder text/fire_at/location.",
+        "Update an Apple Calendar event by reminder_id or event_uid. Only pass fields you want to change — omitted fields (including duration) are preserved. May also update the linked reminder text/fire_at/location when those fields are set. Omit alarm_minutes_before to keep existing Apple alerts; pass [] to clear, null to restore default 1h+15m, or a custom minute list.",
       parameters: {
         type: "object",
         properties: {
@@ -429,6 +460,12 @@ export function createCalendarTools(deps: {
           start: { type: "string" },
           end: { type: "string" },
           notes: { type: "string" },
+          alarm_minutes_before: {
+            type: "array",
+            items: { type: "integer" },
+            description:
+              "Minutes before start for Apple Calendar alerts. Omit to preserve existing. [] clears. null restores default [60, 15]. When changing only alerts, do not pass start/end/title.",
+          },
           location_name: { type: "string" },
           location_address: { type: "string" },
           location_maps_url: { type: "string" },
@@ -445,6 +482,7 @@ export function createCalendarTools(deps: {
             start: z.string().optional(),
             end: z.string().optional(),
             notes: z.string().optional(),
+            alarm_minutes_before: alarmMinutesBeforeSchema,
             ...locationToolFields,
           })
           .refine((v) => Boolean(v.reminder_id || v.event_uid), {
@@ -466,42 +504,72 @@ export function createCalendarTools(deps: {
             error: "No linked calendar event found for this id",
           };
         }
+
+        const locationInputProvided =
+          parsed.data.location_name !== undefined ||
+          parsed.data.location_address !== undefined ||
+          parsed.data.location_maps_url !== undefined ||
+          parsed.data.location_lat !== undefined ||
+          parsed.data.location_lon !== undefined;
+
+        const patch: CalendarEventPatch = {
+          uid: reminder.calendarUid,
+          timeZone: tz(),
+        };
+
+        if (parsed.data.title !== undefined) {
+          patch.title = parsed.data.title;
+        }
+
         let start = reminder.fireAt;
-        if (parsed.data.start) {
+        if (parsed.data.start !== undefined) {
           const d = parseIso(parsed.data.start);
           if (!d) return { ok: false, error: "Invalid start" };
           start = d;
+          patch.start = start;
         }
-        const priorDurationMs = reminder.calendarEndAt
-          ? Math.max(
-              reminder.calendarEndAt.getTime() - reminder.fireAt.getTime(),
-              30 * 60 * 1000,
-            )
-          : 30 * 60 * 1000;
-        let end = new Date(start.getTime() + priorDurationMs);
-        if (parsed.data.end) {
+
+        if (parsed.data.end !== undefined) {
           const d = parseIso(parsed.data.end);
           if (!d) return { ok: false, error: "Invalid end" };
-          end = d;
+          patch.end = d;
+        } else if (parsed.data.start !== undefined) {
+          // Start moved without explicit end — keep prior duration from reminder.
+          const duration = eventDurationMs(reminder);
+          patch.end = new Date(start.getTime() + duration);
         }
-        const title = parsed.data.title ?? reminder.text;
-        const loc = resolveLocation(reminder, parsed.data);
-        const withLoc: ReminderRecord = { ...reminder, ...loc };
+
+        if (parsed.data.notes !== undefined) {
+          const locForNotes = resolveLocation(reminder, parsed.data);
+          patch.description = assembleEventDescription({
+            notes: parsed.data.notes,
+            mapsUrl: locForNotes.locationMapsUrl,
+          });
+        }
+
+        if (locationInputProvided) {
+          const loc = resolveLocation(reminder, parsed.data);
+          patch.location = icsLocationFromFields(loc);
+          const geo = geoFromFields(loc);
+          if (geo) patch.geo = geo;
+        }
+
+        if (parsed.data.alarm_minutes_before !== undefined) {
+          patch.alarmMinutesBefore = alarmMinutesFromToolParam(
+            parsed.data.alarm_minutes_before,
+          );
+        }
+
         const updated = await deps.calendar.updateEvent(
           reminder.calendarHref,
-          eventInputFromReminder(withLoc, {
-            uid: reminder.calendarUid,
-            title,
-            start,
-            end,
-            timeZone: tz(),
-            notes: parsed.data.notes,
-          }),
+          patch,
         );
         if (!updated.ok) {
           return { ok: false, error: updated.error };
         }
-        const patch: {
+
+        const loc = resolveLocation(reminder, parsed.data);
+        const storePatch: {
           text?: string;
           fireAt?: Date;
           calendarEndAt?: Date;
@@ -512,25 +580,40 @@ export function createCalendarTools(deps: {
           locationLat?: number | null;
           locationLon?: number | null;
         } = {
-          calendarEndAt: end,
           ...locationPatchFromResolved(loc, parsed.data),
         };
-        if (parsed.data.title !== undefined) patch.text = title;
+        if (parsed.data.title !== undefined) storePatch.text = parsed.data.title;
         if (parsed.data.start !== undefined) {
-          patch.fireAt = start;
-          patch.status = "pending";
+          storePatch.fireAt = start;
+          storePatch.status = "pending";
         }
-        const saved = await deps.store.update(reminder.id, patch);
+        if (
+          parsed.data.start !== undefined ||
+          parsed.data.end !== undefined
+        ) {
+          storePatch.calendarEndAt = updated.data.end;
+        }
+
+        const saved =
+          Object.keys(storePatch).length > 0
+            ? await deps.store.update(reminder.id, storePatch)
+            : reminder;
+        const withLoc: ReminderRecord = { ...reminder, ...loc };
         return {
           ok: true,
           data: {
             event_uid: reminder.calendarUid,
             reminder_id: reminder.id,
-            title,
-            start: start.toISOString(),
-            end: end.toISOString(),
-            location: icsLocationFromFields(withLoc) ?? null,
-            reminder: saved ? toPublic(saved) : toPublic(withLoc),
+            title: parsed.data.title ?? reminder.text,
+            start: (parsed.data.start !== undefined
+              ? start
+              : reminder.fireAt
+            ).toISOString(),
+            end: updated.data.end.toISOString(),
+            location: icsLocationFromFields(
+              locationInputProvided ? withLoc : reminder,
+            ) ?? null,
+            reminder: saved ? toPublic(saved) : toPublic(reminder),
           },
         };
       },

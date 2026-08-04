@@ -112,6 +112,7 @@ export function buildSessionInstructions(
           "When speaking location: use location_name / location_address. Never read location_maps_url aloud.",
           "«Что в календаре / какие встречи?» → calendar_list (not only reminder_list).",
           "Reschedule or edit a calendar event → calendar_update_event (reminder_id or event_uid).",
+          "Change/remove Apple Calendar alerts before the event → calendar_update_event with only alarm_minutes_before ([] clears, [30] custom, null restores default 1h+15m; omit to keep existing). Do not pass start/end/title when only changing alerts.",
           "Remove from calendar only → calendar_delete_event. Cancel the reminder entirely → reminder_cancel (also deletes the linked calendar event).",
           "calendar_create_event never creates reminders — always reminder_create first.",
           "",

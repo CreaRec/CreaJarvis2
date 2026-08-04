@@ -367,7 +367,15 @@ describe("createCalendarTools", () => {
       start: "2024-01-16T17:00:00.000Z",
     });
     expect(result.ok).toBe(true);
-    expect(calendar.updateEvent).toHaveBeenCalled();
+    expect(calendar.updateEvent).toHaveBeenCalledWith(
+      "https://x/uid-1.ics",
+      expect.objectContaining({
+        uid: "uid-1",
+        title: "new title",
+        start: new Date("2024-01-16T17:00:00.000Z"),
+        end: new Date("2024-01-16T17:30:00.000Z"),
+      }),
+    );
     expect(store.update).toHaveBeenCalledWith(
       REM_ID,
       expect.objectContaining({
@@ -375,6 +383,218 @@ describe("createCalendarTools", () => {
         fireAt: new Date("2024-01-16T17:00:00.000Z"),
       }),
     );
+  });
+
+  it("alarm-only update passes only alarmMinutesBefore and skips store duration patch", async () => {
+    const linked = makeRecord({
+      calendarUid: "uid-1",
+      calendarHref: "https://x/uid-1.ics",
+      calendarEndAt: new Date("2024-01-16T18:00:00.000Z"),
+    });
+    const store = makeStore({
+      getById: vi.fn().mockResolvedValue(linked),
+      update: vi.fn(),
+    });
+    const updateEvent = vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        uid: "uid-1",
+        href: "https://x/uid-1.ics",
+        end: new Date("2024-01-16T18:00:00.000Z"),
+      },
+    });
+    const calendar = makeCalendar({ updateEvent });
+    const gw = new ToolGateway();
+    for (const tool of createCalendarTools({
+      calendar,
+      store,
+      config: makeConfig(),
+    })) {
+      gw.register(tool);
+    }
+    const result = await gw.execute("calendar_update_event", {
+      reminder_id: REM_ID,
+      alarm_minutes_before: [30],
+    });
+    expect(result.ok).toBe(true);
+    expect(updateEvent).toHaveBeenCalledWith("https://x/uid-1.ics", {
+      uid: "uid-1",
+      timeZone: "America/Chicago",
+      alarmMinutesBefore: [30],
+    });
+    expect(store.update).not.toHaveBeenCalled();
+  });
+
+  it("create passes custom and empty alarm_minutes_before", async () => {
+    const reminder = makeRecord();
+    const linked = makeRecord({
+      calendarUid: "uid-alarms",
+      calendarHref: "https://caldav.example/uid-alarms.ics",
+      calendarEndAt: new Date("2024-01-16T16:30:00.000Z"),
+    });
+    const store = makeStore({
+      getById: vi.fn().mockResolvedValue(reminder),
+      setCalendarLink: vi.fn().mockResolvedValue(linked),
+    });
+    const createEvent = vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        uid: "uid-alarms",
+        href: "https://caldav.example/uid-alarms.ics",
+        end: new Date("2024-01-16T16:30:00.000Z"),
+      },
+    });
+    const calendar = makeCalendar({ createEvent });
+    const gw = new ToolGateway();
+    for (const tool of createCalendarTools({
+      calendar,
+      store,
+      config: makeConfig(),
+    })) {
+      gw.register(tool);
+    }
+
+    await gw.execute("calendar_create_event", {
+      reminder_id: REM_ID,
+      title: "dentist",
+      start: "2024-01-16T16:00:00.000Z",
+      alarm_minutes_before: [30],
+    });
+    expect(createEvent).toHaveBeenLastCalledWith(
+      expect.objectContaining({ alarmMinutesBefore: [30] }),
+    );
+
+    const reminder2 = makeRecord();
+    store.getById = vi.fn().mockResolvedValue(reminder2);
+    await gw.execute("calendar_create_event", {
+      reminder_id: REM_ID,
+      title: "dentist",
+      start: "2024-01-16T16:00:00.000Z",
+      alarm_minutes_before: [],
+    });
+    expect(createEvent).toHaveBeenLastCalledWith(
+      expect.objectContaining({ alarmMinutesBefore: [] }),
+    );
+  });
+
+  it("create omits alarmMinutesBefore when param omitted", async () => {
+    const reminder = makeRecord();
+    const linked = makeRecord({
+      calendarUid: "uid-1",
+      calendarHref: "https://caldav.example/uid-1.ics",
+      calendarEndAt: new Date("2024-01-16T16:30:00.000Z"),
+    });
+    const store = makeStore({
+      getById: vi.fn().mockResolvedValue(reminder),
+      setCalendarLink: vi.fn().mockResolvedValue(linked),
+    });
+    const createEvent = vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        uid: "uid-1",
+        href: "https://caldav.example/uid-1.ics",
+        end: new Date("2024-01-16T16:30:00.000Z"),
+      },
+    });
+    const calendar = makeCalendar({ createEvent });
+    const gw = new ToolGateway();
+    for (const tool of createCalendarTools({
+      calendar,
+      store,
+      config: makeConfig(),
+    })) {
+      gw.register(tool);
+    }
+    await gw.execute("calendar_create_event", {
+      reminder_id: REM_ID,
+      title: "dentist",
+      start: "2024-01-16T16:00:00.000Z",
+    });
+    expect(createEvent).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        alarmMinutesBefore: expect.anything(),
+      }),
+    );
+  });
+
+  it("update restores defaults when alarm_minutes_before is null", async () => {
+    const linked = makeRecord({
+      calendarUid: "uid-1",
+      calendarHref: "https://x/uid-1.ics",
+      calendarEndAt: new Date("2024-01-16T16:30:00.000Z"),
+    });
+    const store = makeStore({
+      getById: vi.fn().mockResolvedValue(linked),
+      update: vi.fn().mockResolvedValue(linked),
+    });
+    const updateEvent = vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        uid: "uid-1",
+        href: "https://x/uid-1.ics",
+        end: new Date("2024-01-16T16:30:00.000Z"),
+      },
+    });
+    const calendar = makeCalendar({ updateEvent });
+    const gw = new ToolGateway();
+    for (const tool of createCalendarTools({
+      calendar,
+      store,
+      config: makeConfig(),
+    })) {
+      gw.register(tool);
+    }
+    const result = await gw.execute("calendar_update_event", {
+      reminder_id: REM_ID,
+      alarm_minutes_before: null,
+    });
+    expect(result.ok).toBe(true);
+    expect(updateEvent).toHaveBeenCalledWith("https://x/uid-1.ics", {
+      uid: "uid-1",
+      timeZone: "America/Chicago",
+      alarmMinutesBefore: [60, 15],
+    });
+    expect(store.update).not.toHaveBeenCalled();
+  });
+
+  it("update clears alarms when alarm_minutes_before is empty", async () => {
+    const linked = makeRecord({
+      calendarUid: "uid-1",
+      calendarHref: "https://x/uid-1.ics",
+      calendarEndAt: new Date("2024-01-16T16:30:00.000Z"),
+    });
+    const store = makeStore({
+      getById: vi.fn().mockResolvedValue(linked),
+      update: vi.fn().mockResolvedValue(linked),
+    });
+    const updateEvent = vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        uid: "uid-1",
+        href: "https://x/uid-1.ics",
+        end: new Date("2024-01-16T16:30:00.000Z"),
+      },
+    });
+    const calendar = makeCalendar({ updateEvent });
+    const gw = new ToolGateway();
+    for (const tool of createCalendarTools({
+      calendar,
+      store,
+      config: makeConfig(),
+    })) {
+      gw.register(tool);
+    }
+    const result = await gw.execute("calendar_update_event", {
+      reminder_id: REM_ID,
+      alarm_minutes_before: [],
+    });
+    expect(result.ok).toBe(true);
+    expect(updateEvent).toHaveBeenCalledWith("https://x/uid-1.ics", {
+      uid: "uid-1",
+      timeZone: "America/Chicago",
+      alarmMinutesBefore: [],
+    });
+    expect(store.update).not.toHaveBeenCalled();
   });
 });
 

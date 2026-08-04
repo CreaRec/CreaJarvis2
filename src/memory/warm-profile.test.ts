@@ -81,5 +81,6 @@ describe("buildSessionInstructions", () => {
     expect(text).toContain("calendar_create_event");
     expect(text).toContain("offer_calendar");
     expect(text).toContain("calendar_list");
+    expect(text).toContain("alarm_minutes_before");
   });
 });
