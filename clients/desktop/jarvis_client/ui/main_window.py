@@ -35,14 +35,14 @@ from jarvis_client.ui.bridge import SignalBridge
 from jarvis_client.ui.debug_panel import DebugPanel
 from jarvis_client.ui.orb import OrbWidget
 from jarvis_client.ui.toast import ToastBanner, TrayNotifier
-from jarvis_client.weather import clear_weather_cache, current_weather
+from jarvis_client.weather import current_weather
 
 DEFAULT_WS = os.environ.get("VOICE_GATEWAY_URL", "ws://127.0.0.1:8787/voice")
 DEFAULT_TOKEN = os.environ.get("JARVIS_GATEWAY_TOKEN", "")
 DEFAULT_DEVICE_NAME = default_display_name()
 DEFAULT_DEVICE_ROOM = default_room()
 DEFAULT_DEVICE_PURPOSE = default_purpose()
-# Refresh orb weather from Open-Meteo once per hour while the client is open.
+# Refresh orb weather from Core once per hour while the client is open.
 WEATHER_REFRESH_MS = 60 * 60 * 1000
 
 
@@ -242,12 +242,15 @@ class MainWindow(QMainWindow):
         self._push_weather()
 
     def _push_weather(self) -> None:
-        """Feed current weather into the orbital satellite (Open-Meteo or stub)."""
-        self._orb.set_weather(current_weather().to_payload())
+        """Feed current weather from Core into the orbital satellite."""
+        snap = current_weather(
+            gateway_url=self.gateway_url(),
+            token=self.gateway_token(),
+        )
+        self._orb.set_weather(snap.to_payload())
 
     def _refresh_weather(self) -> None:
-        """Hourly refresh: bypass in-memory cache and update the orb."""
-        clear_weather_cache()
+        """Hourly refresh from Core."""
         self._push_weather()
 
     def gateway_url(self) -> str:

@@ -28,6 +28,10 @@ import { createPlanTools } from "../tools/plan-tools.js";
 import { createReminderTools } from "../tools/reminder-tools.js";
 import { createSearchTools } from "../tools/search-tools.js";
 import { createThemeTools } from "../tools/theme-tools.js";
+import {
+  OpenMeteoWeather,
+  weatherEnabledFlag,
+} from "../weather/open-meteo.js";
 import { VoiceGateway } from "./voice-gateway.js";
 
 installConsoleCapture(debugLogBuffer);
@@ -153,6 +157,14 @@ async function main(): Promise<void> {
     tools.register(tool);
   }
 
+  const weather = new OpenMeteoWeather({
+    enabled: weatherEnabledFlag(config.JARVIS_WEATHER),
+    lat: config.JARVIS_WEATHER_LAT,
+    lon: config.JARVIS_WEATHER_LON,
+    place: config.JARVIS_WEATHER_PLACE,
+    timeoutMs: Math.round(config.JARVIS_WEATHER_TIMEOUT * 1000),
+  });
+
   const voice = new VoiceGateway({
     config,
     tools,
@@ -171,7 +183,10 @@ async function main(): Promise<void> {
   const server = createServer((req, res) => {
     const url = req.url ?? "/";
 
-    if (req.method === "OPTIONS" && url.startsWith("/debug")) {
+    if (
+      req.method === "OPTIONS" &&
+      (url.startsWith("/debug") || url.startsWith("/weather"))
+    ) {
       applyCors(res);
       res.writeHead(204);
       res.end();
@@ -181,6 +196,27 @@ async function main(): Promise<void> {
     if (url === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: true, service: "crea-jarvis2-core" }));
+      return;
+    }
+
+    if (
+      (url === "/weather/current" || url.startsWith("/weather/current?")) &&
+      req.method === "GET"
+    ) {
+      if (!requireDebugAuth(req, res, config.JARVIS_GATEWAY_TOKEN)) return;
+      void (async () => {
+        try {
+          const snap = await weather.current();
+          applyCors(res);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: true, weather: snap }));
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          applyCors(res);
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: message }));
+        }
+      })();
       return;
     }
 
@@ -313,7 +349,9 @@ async function main(): Promise<void> {
   poller.start();
 
   server.listen(config.PORT, "0.0.0.0", () => {
-    console.log(`[core] listening on :${config.PORT} (health + /voice + /debug)`);
+    console.log(
+      `[core] listening on :${config.PORT} (health + /voice + /weather + /debug)`,
+    );
   });
 
   const shutdown = async () => {

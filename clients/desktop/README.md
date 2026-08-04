@@ -102,10 +102,6 @@ pytest
 | `JARVIS_USE_OPENWAKEWORD` | `1` | `0` disables hey_jarvis detector |
 | `JARVIS_OWW_THRESHOLD` | `0.05` | Soft peak cutoff (end of speech) |
 | `JARVIS_OWW_STRONG_THRESHOLD` | `0.4` | Instant wake if score is strong |
-| `JARVIS_WEATHER` | `1` | `0` / `stub` forces placeholder weather |
-| `JARVIS_WEATHER_LAT` / `JARVIS_WEATHER_LON` | unset | Coordinates for Open-Meteo |
-| `JARVIS_WEATHER_PLACE` | unset | Display name, or geocode query if lat/lon unset |
-| `JARVIS_WEATHER_TIMEOUT` | `3` | HTTP timeout seconds |
 | `QT_QPA_PLATFORM` | (system) | Set to `offscreen` for headless tests |
 
-The Main orb shows a weather bead on ring A — larger than the red beads, inset from the rim — via `jarvis_client.weather.current_weather()` (Open-Meteo; IP geolocation when lat/lon/place are unset). The client refreshes it every hour. Bridge: `OrbWidget.set_weather(payload)`.
+The Main orb shows a weather bead on ring A — larger than the red beads, inset from the rim — via Core `GET /weather/current` (Open-Meteo on the server; location from Core `.env` `JARVIS_WEATHER_*`). The client refreshes hourly using the Settings gateway URL + token. Bridge: `OrbWidget.set_weather(payload)`.

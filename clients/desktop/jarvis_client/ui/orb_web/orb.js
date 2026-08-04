@@ -168,6 +168,12 @@
     return group;
   }
 
+  // Match the orbiting red beads (0xff4444) — weather is a larger sibling on ring A.
+  const WEATHER_RED = "#ff4444";
+  const WEATHER_RED_SOFT = "#ff7777";
+  const WEATHER_RED_FILL = "#1a0606";
+  const WEATHER_RED_INNER = "#3a1010";
+
   function drawWeatherBadge(ctx, size, weather) {
     const cx = size / 2;
     const cy = size / 2;
@@ -177,23 +183,23 @@
     // Fully opaque disc — translucent fills show particle sphere through the bead.
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fillStyle = "#001510";
+    ctx.fillStyle = WEATHER_RED_FILL;
     ctx.fill();
     ctx.beginPath();
     ctx.arc(cx, cy, r * 0.92, 0, Math.PI * 2);
-    ctx.fillStyle = "#003528";
+    ctx.fillStyle = WEATHER_RED_INNER;
     ctx.fill();
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.strokeStyle = "#00e5b0";
+    ctx.strokeStyle = WEATHER_RED;
     ctx.lineWidth = Math.max(4, size * 0.045);
     ctx.stroke();
 
     const temp = (weather && weather.tempLabel) || "--°";
     const label = ((weather && weather.label) || "").toLowerCase();
 
-    ctx.fillStyle = "#00e5b0";
-    ctx.strokeStyle = "#00e5b0";
+    ctx.fillStyle = WEATHER_RED;
+    ctx.strokeStyle = WEATHER_RED;
     ctx.lineWidth = Math.max(2, size * 0.02);
     const gx = cx;
     const gy = cy - size * 0.14;
@@ -236,7 +242,7 @@
     }
 
     // System sans-serif — Orbitron often isn't ready for canvas in WebEngine.
-    ctx.fillStyle = "#00ffd4";
+    ctx.fillStyle = WEATHER_RED_SOFT;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.font = "bold " + Math.round(size * 0.22) + "px sans-serif";

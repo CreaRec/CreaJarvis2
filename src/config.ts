@@ -3,6 +3,12 @@ import { z } from "zod";
 
 loadDotenv();
 
+const optionalFloat = z.preprocess((value) => {
+  if (value === undefined || value === null || value === "") return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : value;
+}, z.number().optional());
+
 const envSchema = z.object({
   OPENAI_API_KEY: z.string().min(1),
   DATABASE_URL: z
@@ -27,6 +33,12 @@ const envSchema = z.object({
   REMINDER_QUIET_START: z.coerce.number().int().min(0).max(23).default(22),
   REMINDER_QUIET_END: z.coerce.number().int().min(0).max(23).default(8),
   REMINDER_POLL_MS: z.coerce.number().int().min(1000).default(15000),
+  /** `0` / `stub` / `off` disables live Open-Meteo (returns stub payload). */
+  JARVIS_WEATHER: z.string().default("1"),
+  JARVIS_WEATHER_LAT: optionalFloat,
+  JARVIS_WEATHER_LON: optionalFloat,
+  JARVIS_WEATHER_PLACE: z.string().default(""),
+  JARVIS_WEATHER_TIMEOUT: z.coerce.number().positive().default(3),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

@@ -257,16 +257,17 @@ class OrbPainterWidget(QWidget):
             int(core_r * 2),
         )
 
-        # Orbiting weather bead (larger, slightly inset from the outer ring).
+        # Orbiting weather bead — same red as the WebGL ring beads (#ff4444).
         if self._weather:
             weather_ang = self._spin * 0.55
             orbit = ring_r * 1.05
             wx = cx + math.cos(weather_ang) * orbit
             wy = cy + math.sin(weather_ang) * orbit
             badge_r = max(14.0, min(w, h) * 0.055)
-            badge_bg = QColor(0, 20, 18, 210)
+            weather_red = QColor("#ff4444")
+            badge_bg = QColor(26, 6, 6, 230)
             painter.setBrush(badge_bg)
-            pen = QPen(accent)
+            pen = QPen(weather_red)
             pen.setWidthF(1.5)
             painter.setPen(pen)
             painter.drawEllipse(
@@ -276,7 +277,7 @@ class OrbPainterWidget(QWidget):
                 int(badge_r * 2),
             )
             temp = str(self._weather.get("tempLabel") or "--°")
-            painter.setPen(accent)
+            painter.setPen(QColor("#ff7777"))
             font = painter.font()
             font.setFamily("Orbitron")
             font.setBold(True)

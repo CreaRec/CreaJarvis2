@@ -32,8 +32,9 @@ else
 fi
 
 export VOICE_GATEWAY_URL="${VOICE_GATEWAY_URL:-ws://127.0.0.1:8787/voice}"
-if [[ -z "${JARVIS_GATEWAY_TOKEN:-}" && -f "$ROOT/../../.env" ]]; then
-  JARVIS_GATEWAY_TOKEN="$(grep -E '^JARVIS_GATEWAY_TOKEN=' "$ROOT/../../.env" | head -1 | cut -d= -f2- | tr -d '\r')"
+ENV_FILE="$ROOT/../../.env"
+if [[ -z "${JARVIS_GATEWAY_TOKEN:-}" && -f "$ENV_FILE" ]]; then
+  JARVIS_GATEWAY_TOKEN="$(grep -E '^JARVIS_GATEWAY_TOKEN=' "$ENV_FILE" | head -1 | cut -d= -f2- | tr -d '\r')"
   export JARVIS_GATEWAY_TOKEN
 fi
 if [[ -z "${JARVIS_GATEWAY_TOKEN:-}" ]]; then

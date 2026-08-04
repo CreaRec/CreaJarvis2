@@ -50,7 +50,15 @@ def test_signal_bridge_emits_to_slots(qapp: QApplication) -> None:
     assert toasts == [("Title", "Body", "meta")]
 
 
-def test_main_window_smoke(qapp: QApplication) -> None:
+def test_main_window_smoke(
+    qapp: QApplication, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from jarvis_client.weather import STUB_WEATHER
+
+    monkeypatch.setattr(
+        "jarvis_client.ui.main_window.current_weather",
+        lambda **_kwargs: STUB_WEATHER,
+    )
     win = MainWindow()
     assert "J.A.R.V.I.S" in win.windowTitle()
     assert win._fsm_label.text() == "idle"
@@ -83,7 +91,7 @@ def test_main_window_smoke(qapp: QApplication) -> None:
     win.close()
 
 
-def test_weather_hourly_refresh_clears_cache(
+def test_weather_hourly_refresh_from_core(
     qapp: QApplication, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from jarvis_client.weather import WeatherSnapshot
@@ -94,31 +102,21 @@ def test_weather_hourly_refresh_clears_cache(
         WeatherSnapshot(temp_c=21.0, icon="0", label="clear", place="Austin"),
     ]
 
-    def fake_weather() -> WeatherSnapshot:
+    def fake_weather(**_kwargs: object) -> WeatherSnapshot:
         i = min(calls["n"], len(snaps) - 1)
         calls["n"] += 1
         return snaps[i]
 
-    cleared = {"n": 0}
-
-    def fake_clear() -> None:
-        cleared["n"] += 1
-
     monkeypatch.setattr(
         "jarvis_client.ui.main_window.current_weather", fake_weather
-    )
-    monkeypatch.setattr(
-        "jarvis_client.ui.main_window.clear_weather_cache", fake_clear
     )
 
     win = MainWindow()
     assert calls["n"] == 1
-    assert cleared["n"] == 0
     assert win._orb._inner._weather["tempLabel"] == "+12°"
 
     win._refresh_weather()
     qapp.processEvents()
-    assert cleared["n"] == 1
     assert calls["n"] == 2
     assert win._orb._inner._weather["tempLabel"] == "+21°"
     win.close()
