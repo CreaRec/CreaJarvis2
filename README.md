@@ -38,6 +38,8 @@ npm run smoke:text -- "Как меня зовут?"
 
 Audio stays on the host. Core stays in Docker. Details: [clients/desktop/README.md](clients/desktop/README.md).
 
+Production deploy (GHCR + Actions): [docs/docker.md](docs/docker.md).
+
 ## Useful commands
 
 | Command | Where | Purpose |
