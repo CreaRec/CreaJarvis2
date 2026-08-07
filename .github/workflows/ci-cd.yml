@@ -29,9 +29,10 @@ jobs:
       - run: npx prisma generate
       - run: npm test
 
+      # 3.11: openwakeword pulls tflite-runtime on Linux; no cp312 wheels on PyPI.
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
 
       - name: Desktop client tests
         working-directory: clients/desktop
