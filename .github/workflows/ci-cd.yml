@@ -34,11 +34,12 @@ jobs:
         with:
           python-version: "3.11"
 
-      # PySide6 / pytest-qt need EGL+xcb even with QT_QPA_PLATFORM=offscreen.
-      - name: Install Qt runtime libraries
+      # PySide6 needs EGL+xcb; sounddevice needs PortAudio (even offscreen).
+      - name: Install desktop runtime libraries
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
+            libportaudio2 \
             libegl1 \
             libgl1 \
             libglib2.0-0 \

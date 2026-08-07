@@ -13,7 +13,7 @@ from jarvis_client.protocol import TARGET_RATE
 
 try:
     import sounddevice as sd
-except ImportError:  # pragma: no cover
+except (ImportError, OSError):  # pragma: no cover — missing package or PortAudio
     sd = None  # type: ignore
 
 
