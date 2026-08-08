@@ -55,6 +55,8 @@ GOOGLE_PLACES_API_KEY=...
 POSTGRES_USER=jarvis
 POSTGRES_PASSWORD=<strong>
 POSTGRES_DB=jarvis
+# Host port for Mac DB tools (default 5433; container listens on 5432)
+POSTGRES_PORT=5433
 DATABASE_URL=postgres://jarvis:<strong>@postgres:5432/jarvis
 
 USER_TIMEZONE=America/Chicago
