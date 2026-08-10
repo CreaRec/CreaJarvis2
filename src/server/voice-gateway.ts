@@ -48,6 +48,17 @@ export type ClientOutbound =
 
 export type { ClientInbound };
 
+/** Split base64 audio into WS-friendly chunks (length multiple of 4). */
+export function chunkBase64Audio(audio: string, chunkSize = 4096): string[] {
+  const size = Math.max(4, chunkSize - (chunkSize % 4));
+  if (audio.length <= size) return [audio];
+  const out: string[] = [];
+  for (let i = 0; i < audio.length; i += size) {
+    out.push(audio.slice(i, i + size));
+  }
+  return out;
+}
+
 export interface VoiceGatewayDeps {
   config: AppConfig;
   tools: ToolGateway;
@@ -139,7 +150,11 @@ export class VoiceGateway {
         config: this.deps.config,
         instructions,
         tools: this.deps.tools,
-        onAudioDelta: (audio) => send({ type: "audio.delta", audio }),
+        onAudioDelta: (audio) => {
+          for (const part of chunkBase64Audio(audio)) {
+            send({ type: "audio.delta", audio: part });
+          }
+        },
         onTranscript: (role, text) => send({ type: "transcript", role, text }),
         onEvent: (event) => {
           if (String(event.type) !== "response.done") return;

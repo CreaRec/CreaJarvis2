@@ -20,6 +20,7 @@
     "smoke:reminders": "tsx scripts/smoke-reminders.ts",
     "smoke:plans": "tsx scripts/smoke-plans.ts",
     "smoke:themes": "tsx scripts/smoke-themes.ts",
+    "test:esp-voice-pe-host": "bash clients/esp-voice-pe/host_tests/run.sh",
     "entrypoint": "prisma migrate deploy && tsx src/server/index.ts"
   },
   "dependencies": {

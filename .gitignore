@@ -2,9 +2,13 @@ node_modules/
 dist/
 .env
 data/
+tmp/
 *.log
 .DS_Store
 clients/desktop/.venv/
+clients/esp-voice-pe/secrets.yaml
+clients/esp-voice-pe/host_tests/test_logic
+clients/esp-voice-pe/host_tests/test_logic.dSYM/
 __pycache__/
 *.pyc
 .pytest_cache/

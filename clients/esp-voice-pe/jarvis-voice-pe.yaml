@@ -1,0 +1,81 @@
+# Jarvis Voice PE — uses vendored Voice PE hardware YAML with Assist removed.
+#
+# Flash:
+#   export PATH="$HOME/.local/bin:$PATH"
+#   cd clients/esp-voice-pe && esphome run jarvis-voice-pe.yaml
+
+substitutions:
+  name: jarvis-voice-pe
+  friendly_name: Jarvis Voice PE
+  hidden_ssid: "false"
+  # LED phase ids (shared with vendor control_leds)
+  voice_assist_idle_phase_id: "1"
+  voice_assist_waiting_for_command_phase_id: "2"
+  voice_assist_listening_for_command_phase_id: "3"
+  voice_assist_thinking_phase_id: "4"
+  voice_assist_replying_phase_id: "5"
+  voice_assist_not_ready_phase_id: "10"
+  voice_assist_error_phase_id: "11"
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  name_add_mac_suffix: true
+  min_version: 2026.6.0
+  project:
+    name: crearec.jarvis_voice_pe
+    version: "0.1.1"
+
+packages:
+  # Patched upstream (no voice_assistant; center/wake → jarvis_gateway)
+  voice_pe: !include vendor/home-assistant-voice.yaml
+
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [jarvis_gateway]
+
+# Voice PE + Sendspin already near LWIP socket budget; jarvis_gateway adds another WS client.
+esp32:
+  framework:
+    sdkconfig_options:
+      CONFIG_LWIP_MAX_SOCKETS: "20"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+jarvis_gateway:
+  id: jarvis
+  url: !secret jarvis_gateway_url
+  token: !secret jarvis_gateway_token
+  device_id: !secret jarvis_device_id
+  display_name: !secret jarvis_display_name
+  room: !secret jarvis_room
+  kind: esp
+  microphone: i2s_mics
+  speaker: announcement_resampling_speaker
+
+button:
+  - platform: template
+    name: "Jarvis wake"
+    id: jarvis_wake_button
+    on_press:
+      - jarvis_gateway.wake:
+          id: jarvis
+
+# Sync LED from Jarvis; clear HA init lock once Core hello.ok (HA API optional).
+interval:
+  - interval: 250ms
+    then:
+      - lambda: |-
+          if (id(init_in_progress) && id(jarvis).is_ready()) {
+            id(init_in_progress) = false;
+          }
+          id(voice_assistant_phase) = id(jarvis).voice_phase();
+      - script.execute: control_leds
