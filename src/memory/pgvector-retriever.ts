@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
+import { logger } from "../log.js";
 import type { Embedder } from "./embedder.js";
 import type { MemoryStore } from "./store.js";
 import type { MemoryRetriever, RankedHit, SearchParams } from "./types.js";
@@ -44,7 +45,12 @@ export class PgVectorRetriever implements MemoryRetriever {
         return rows.map((r) => ({ id: r.id, score: Number(r.score) }));
       }
     } catch (err) {
-      console.warn("[retriever] vector search failed, falling back to keyword:", err);
+      logger.warn("[retriever] vector search failed, falling back to keyword", {
+        component: "memory",
+        handler: "tool",
+        step: "search",
+        error_message: err instanceof Error ? err.message : String(err),
+      });
     }
 
     const facts = await this.store.keywordFallback(

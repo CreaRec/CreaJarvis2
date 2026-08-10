@@ -3,6 +3,8 @@ services:
     build:
       context: .
       target: dev
+      secrets:
+        - NODE_AUTH_TOKEN
     volumes:
       - ./src:/app/src
       - ./scripts:/app/scripts
@@ -15,3 +17,7 @@ services:
         "-c",
         "npx prisma generate && npx prisma migrate deploy && npx tsx watch src/server/index.ts",
       ]
+
+secrets:
+  NODE_AUTH_TOKEN:
+    environment: NODE_AUTH_TOKEN

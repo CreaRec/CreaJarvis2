@@ -1,12 +1,21 @@
 import { timingSafeEqual } from "node:crypto";
 import type { IncomingMessage } from "node:http";
+import { SpanStatusCode } from "@opentelemetry/api";
 import { WebSocket, WebSocketServer } from "ws";
 import type { AppConfig } from "../config.js";
 import {
   formatDeviceSessionBlock,
   type DeviceStore,
 } from "../devices/store.js";
+import { logger, truncateForLog } from "../log.js";
 import { RealtimeClient } from "../realtime/client.js";
+import {
+  classifyError,
+  recordHandledSession,
+  recordVoiceError,
+  withVoiceSessionSpan,
+  type VoiceResult,
+} from "../telemetry.js";
 import { todayLocalDate } from "../utils/time/index.js";
 import { toItemPublic, type PlanStore } from "../plans/store.js";
 import type { DeviceRegistry } from "../reminders/device-registry.js";
@@ -17,6 +26,7 @@ import {
   parseClientInbound,
   type ClientInbound,
 } from "./voice-protocol.js";
+import { VoiceTurnTracker } from "./voice-turn-tracker.js";
 
 export type ClientOutbound =
   | { type: "hello.ok"; deviceId: string; serverTime: string }
@@ -133,11 +143,37 @@ export class VoiceGateway {
     let realtime: RealtimeClient | null = null;
     let deviceId: string | null = null;
     let helloDone = false;
+    let sessionStartedAt: number | null = null;
+    let sessionResult: VoiceResult = "success";
+    let sessionRecorded = false;
+    const turns = new VoiceTurnTracker(() => deviceId);
 
     const send = (msg: ClientOutbound) => {
       if (socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify(msg));
       }
+    };
+
+    const finishSessionMetrics = (reason: string) => {
+      if (sessionStartedAt == null || sessionRecorded) return;
+      sessionRecorded = true;
+      const durationSeconds = (Date.now() - sessionStartedAt) / 1000;
+      recordHandledSession({
+        result: sessionResult,
+        durationSeconds,
+        handler: "session",
+      });
+      logger.info("[voice] session finished", {
+        component: "voice",
+        handler: "session",
+        step: "finish",
+        result: sessionResult,
+        duration_ms: Math.round(durationSeconds * 1000),
+        reason,
+        ...(deviceId ? { device_id: deviceId } : {}),
+      });
+      sessionStartedAt = null;
+      turns.clear();
     };
 
     const ensureRealtime = async () => {
@@ -155,7 +191,19 @@ export class VoiceGateway {
             send({ type: "audio.delta", audio: part });
           }
         },
-        onTranscript: (role, text) => send({ type: "transcript", role, text }),
+        onTranscript: (role, text) => {
+          if (role === "user") {
+            logger.info("[voice] user transcript", {
+              component: "voice",
+              handler: "session",
+              step: "transcript",
+              text_chars: text.length,
+              user_text: truncateForLog(text),
+              ...(deviceId ? { device_id: deviceId } : {}),
+            });
+          }
+          send({ type: "transcript", role, text });
+        },
         onEvent: (event) => {
           if (String(event.type) !== "response.done") return;
           const response = event.response as
@@ -165,6 +213,7 @@ export class VoiceGateway {
             (item) => item.type === "function_call",
           );
           if (!hasFunctionCall) {
+            turns.finish("response_done");
             send({ type: "response.done" });
           }
         },
@@ -191,6 +240,7 @@ export class VoiceGateway {
       if (deviceId) {
         this.deps.deviceRegistry.releaseVoice(deviceId);
       }
+      finishSessionMetrics(reason);
     };
 
     socket.on("message", (data) => {
@@ -217,6 +267,19 @@ export class VoiceGateway {
               return;
             }
             if (!tokensEqual(msg.token, this.deps.config.JARVIS_GATEWAY_TOKEN)) {
+              recordHandledSession({
+                result: "skipped",
+                durationSeconds: 0,
+                handler: "hello",
+              });
+              logger.warn("[voice] hello unauthorized", {
+                component: "voice",
+                handler: "hello",
+                step: "auth",
+                result: "skipped",
+                error_type: "auth",
+                device_id: msg.deviceId,
+              });
               send({ type: "error", message: "Unauthorized" });
               socket.close();
               return;
@@ -238,6 +301,13 @@ export class VoiceGateway {
             );
             deviceId = saved.id;
             helloDone = true;
+            logger.info("[voice] hello ok", {
+              component: "voice",
+              handler: "hello",
+              step: "start",
+              result: "success",
+              device_id: saved.id,
+            });
             send({
               type: "hello.ok",
               deviceId: saved.id,
@@ -246,12 +316,24 @@ export class VoiceGateway {
             try {
               await this.flushMissed();
             } catch (err) {
-              console.error("[voice-gateway] missed flush failed:", err);
+              logger.exception("[voice] missed flush failed", err, {
+                component: "voice",
+                handler: "hello",
+                step: "missed_flush",
+                result: "error",
+                error_type: classifyError(err),
+              });
             }
             try {
               await this.flushTodayPlan();
             } catch (err) {
-              console.error("[voice-gateway] plan digest failed:", err);
+              logger.exception("[voice] plan digest failed", err, {
+                component: "voice",
+                handler: "hello",
+                step: "plan_digest",
+                result: "error",
+                error_type: classifyError(err),
+              });
             }
             return;
           }
@@ -267,6 +349,19 @@ export class VoiceGateway {
               }
               const claim = this.deps.deviceRegistry.claimVoice(deviceId);
               if (!claim.ok) {
+                recordHandledSession({
+                  result: "skipped",
+                  durationSeconds: 0,
+                  handler: "session",
+                });
+                logger.info("[voice] session busy", {
+                  component: "voice",
+                  handler: "session",
+                  step: "start",
+                  result: "skipped",
+                  device_id: deviceId,
+                  owner_device_id: claim.ownerDeviceId,
+                });
                 send({
                   type: "session.busy",
                   ownerDeviceId: claim.ownerDeviceId,
@@ -274,7 +369,38 @@ export class VoiceGateway {
                 });
                 break;
               }
-              await ensureRealtime();
+              sessionStartedAt = Date.now();
+              sessionResult = "success";
+              sessionRecorded = false;
+              await withVoiceSessionSpan(
+                "voice.session",
+                { device_id: deviceId, handler: "session" },
+                async (span) => {
+                  logger.info("[voice] session started", {
+                    component: "voice",
+                    handler: "session",
+                    step: "start",
+                    device_id: deviceId!,
+                  });
+                  try {
+                    await ensureRealtime();
+                  } catch (err) {
+                    sessionResult = "error";
+                    const errorType = classifyError(err);
+                    recordVoiceError({ errorType, handler: "realtime" });
+                    span.recordException(
+                      err instanceof Error ? err : new Error(String(err)),
+                    );
+                    span.setStatus({
+                      code: SpanStatusCode.ERROR,
+                      message: err instanceof Error ? err.message : String(err),
+                    });
+                    this.deps.deviceRegistry.releaseVoice(deviceId!);
+                    finishSessionMetrics("realtime_connect_failed");
+                    throw err;
+                  }
+                },
+              );
               break;
             }
             case "audio.append": {
@@ -286,18 +412,44 @@ export class VoiceGateway {
             case "audio.commit": {
               if (!requireOwner()) break;
               const rt = await ensureRealtime();
+              turns.begin("audio");
+              logger.info("[voice] turn started", {
+                component: "voice",
+                handler: "session",
+                step: "commit",
+                turn: "audio",
+                device_id: deviceId!,
+              });
               rt.commitAudio();
               break;
             }
             case "text": {
               if (!requireOwner()) break;
               const rt = await ensureRealtime();
+              turns.begin("text");
+              logger.info("[voice] turn started", {
+                component: "voice",
+                handler: "session",
+                step: "text",
+                turn: "text",
+                device_id: deviceId!,
+                text_chars: msg.text.length,
+                user_text: truncateForLog(msg.text),
+              });
               await rt.sendText(msg.text);
               break;
             }
             case "ack.play": {
               if (!requireOwner()) break;
               const rt = await ensureRealtime();
+              turns.begin("ack");
+              logger.info("[voice] ack", {
+                component: "voice",
+                handler: "session",
+                step: "ack",
+                turn: "ack",
+                device_id: deviceId!,
+              });
               await rt.playAck(ACK_PLAY_PROMPT);
               break;
             }
@@ -312,7 +464,16 @@ export class VoiceGateway {
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          console.error("[voice-gateway]", message);
+          const errorType = classifyError(err);
+          sessionResult = "error";
+          recordVoiceError({ errorType, handler: "session" });
+          logger.exception("[voice-gateway]", err, {
+            component: "voice",
+            handler: "session",
+            result: "error",
+            error_type: errorType,
+            ...(deviceId ? { device_id: deviceId } : {}),
+          });
           send({ type: "error", message });
         }
       })();
@@ -323,9 +484,11 @@ export class VoiceGateway {
       if (wasVoiceOwner) {
         void realtime?.close();
         realtime = null;
+        finishSessionMetrics("socket_close");
       } else {
         void realtime?.close();
         realtime = null;
+        finishSessionMetrics("socket_close");
       }
     });
   }

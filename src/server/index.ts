@@ -35,6 +35,8 @@ import {
   OpenMeteoWeather,
   weatherEnabledFlag,
 } from "../weather/open-meteo.js";
+import { logger } from "../log.js";
+import { startTelemetry, shutdownTelemetry } from "../telemetry.js";
 import { VoiceGateway } from "./voice-gateway.js";
 
 installConsoleCapture(debugLogBuffer);
@@ -89,6 +91,7 @@ function requireDebugAuth(
 }
 
 async function main(): Promise<void> {
+  startTelemetry();
   const config = loadConfig();
   const iCloud = resolveICloudCalendarConfig(config);
   const calendarClient = iCloud.enabled
@@ -379,16 +382,24 @@ async function main(): Promise<void> {
   poller.start();
 
   server.listen(config.PORT, "0.0.0.0", () => {
-    console.log(
-      `[core] listening on :${config.PORT} (health + /voice + /weather + /debug)`,
-    );
+    logger.info("[core] listening", {
+      component: "core",
+      handler: "http",
+      step: "start",
+      port: config.PORT,
+    });
   });
 
   const shutdown = async () => {
-    console.log("[core] shutting down");
+    logger.info("[core] shutting down", {
+      component: "core",
+      handler: "http",
+      step: "finish",
+    });
     poller.stop();
     server.close();
     await prisma.$disconnect();
+    await shutdownTelemetry();
     process.exit(0);
   };
   process.on("SIGINT", () => void shutdown());
@@ -396,6 +407,10 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error("[core] fatal:", err);
-  process.exit(1);
+  logger.exception("[core] fatal", err, {
+    component: "core",
+    handler: "http",
+    result: "error",
+  });
+  void shutdownTelemetry().finally(() => process.exit(1));
 });

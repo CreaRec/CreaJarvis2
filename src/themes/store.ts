@@ -6,6 +6,7 @@ import {
   type ThemeKind as PrismaThemeKind,
   type ThemeStatus as PrismaThemeStatus,
 } from "@prisma/client";
+import { logger } from "../log.js";
 import type { Embedder } from "../memory/embedder.js";
 import type {
   NewThemeInput,
@@ -449,7 +450,12 @@ export class ThemeStore {
           return themes.filter((t): t is ThemeRecord => Boolean(t));
         }
       } catch (err) {
-        console.warn("[themes] vector search failed, keyword fallback:", err);
+        logger.warn("[themes] vector search failed, keyword fallback", {
+          component: "themes",
+          handler: "tool",
+          step: "search",
+          error_message: err instanceof Error ? err.message : String(err),
+        });
       }
     }
     return this.keywordSearch(query, opts);

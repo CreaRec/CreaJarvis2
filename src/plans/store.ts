@@ -3,6 +3,7 @@ import {
   type PrismaClient,
   type PlanItemStatus as PrismaPlanItemStatus,
 } from "@prisma/client";
+import { logger } from "../log.js";
 import type { Embedder } from "../memory/embedder.js";
 import {
   addLocalDateDays,
@@ -462,7 +463,12 @@ export class PlanStore {
           return items.filter((i): i is PlanItemRecord => Boolean(i));
         }
       } catch (err) {
-        console.warn("[plans] vector search failed, keyword fallback:", err);
+        logger.warn("[plans] vector search failed, keyword fallback", {
+          component: "plans",
+          handler: "tool",
+          step: "search",
+          error_message: err instanceof Error ? err.message : String(err),
+        });
       }
     }
     return this.keywordSearch(query, limit);

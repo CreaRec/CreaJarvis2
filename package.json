@@ -24,6 +24,8 @@
     "entrypoint": "prisma migrate deploy && tsx src/server/index.ts"
   },
   "dependencies": {
+    "@crearec/otel": "^0.0.2",
+    "@opentelemetry/api": "^1.9.1",
     "@prisma/client": "^6.12.0",
     "dotenv": "^16.6.1",
     "tsdav": "^2.3.1",

@@ -1,4 +1,6 @@
 import type { AppConfig } from "../config.js";
+import { logger } from "../log.js";
+import { classifyError, recordVoiceError } from "../telemetry.js";
 import type { DeviceRegistry } from "./device-registry.js";
 import { shiftOutOfQuietHours } from "./quiet-hours.js";
 import { toPublic, type ReminderStore } from "./store.js";
@@ -19,9 +21,12 @@ export class ReminderPoller {
       void this.tick();
     }, this.config.REMINDER_POLL_MS);
     void this.tick();
-    console.log(
-      `[reminders] poller started (every ${this.config.REMINDER_POLL_MS}ms)`,
-    );
+    logger.info("[reminders] poller started", {
+      component: "reminders",
+      handler: "reminder_poll",
+      step: "start",
+      poll_ms: this.config.REMINDER_POLL_MS,
+    });
   }
 
   stop(): void {
@@ -69,7 +74,14 @@ export class ReminderPoller {
         }
       }
     } catch (err) {
-      console.error("[reminders] poller tick failed:", err);
+      const errorType = classifyError(err);
+      recordVoiceError({ errorType, handler: "reminder_poll" });
+      logger.exception("[reminders] poller tick failed", err, {
+        component: "reminders",
+        handler: "reminder_poll",
+        result: "error",
+        error_type: errorType,
+      });
     } finally {
       this.running = false;
     }

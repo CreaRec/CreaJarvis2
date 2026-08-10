@@ -1,3 +1,4 @@
+import { logger } from "../log.js";
 import { labelForWeatherCode } from "./labels.js";
 import {
   STUB_WEATHER,
@@ -69,7 +70,13 @@ export class OpenMeteoWeather {
       return snap;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.warn(`[weather] fetch failed (${message}); using stub`);
+      logger.warn("[weather] fetch failed; using stub", {
+        component: "weather",
+        handler: "http",
+        result: "error",
+        error_type: "network",
+        error_message: message,
+      });
       return this.cache?.snap ?? STUB_WEATHER;
     }
   }

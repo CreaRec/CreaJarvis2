@@ -3,9 +3,10 @@
 FROM node:22-bookworm-slim AS deps
 WORKDIR /app
 RUN apt-get update -y && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
-COPY package.json package-lock.json* ./
+COPY .npmrc package.json package-lock.json* ./
 COPY prisma ./prisma
-RUN npm install && npx prisma generate
+RUN --mount=type=secret,id=NODE_AUTH_TOKEN \
+  NODE_AUTH_TOKEN="$(cat /run/secrets/NODE_AUTH_TOKEN)" npm install && npx prisma generate
 
 FROM node:22-bookworm-slim AS build
 WORKDIR /app

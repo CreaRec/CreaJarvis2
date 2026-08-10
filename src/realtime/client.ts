@@ -1,5 +1,7 @@
 import WebSocket from "ws";
 import type { AppConfig } from "../config.js";
+import { logger } from "../log.js";
+import { classifyError, recordVoiceError } from "../telemetry.js";
 import { parseJsonArgs, type ToolGateway } from "../tools/gateway.js";
 
 export type RealtimeEventHandler = (event: Record<string, unknown>) => void;
@@ -76,9 +78,13 @@ export class RealtimeClient {
     });
     this.ws.on("close", (code, reason) => {
       if (!this.closing) {
-        console.warn(
-          `[realtime] connection closed code=${code} reason=${reason.toString()}`,
-        );
+        logger.warn("[realtime] connection closed", {
+          component: "realtime",
+          handler: "realtime",
+          step: "close",
+          code,
+          reason: reason.toString(),
+        });
       }
     });
 
@@ -271,7 +277,14 @@ export class RealtimeClient {
     }
 
     if (type === "error") {
-      console.error("[realtime] error event:", JSON.stringify(event));
+      recordVoiceError({ errorType: "openai", handler: "realtime" });
+      logger.error("[realtime] error event", {
+        component: "realtime",
+        handler: "realtime",
+        result: "error",
+        error_type: "openai",
+        event_type: type,
+      });
     }
   }
 
@@ -283,11 +296,23 @@ export class RealtimeClient {
     if (!callId || this.handledCalls.has(callId)) return;
     this.handledCalls.add(callId);
     const args = parseJsonArgs(argsStr);
-    console.log(`[tools] ${name}`, args);
+    logger.info("[tools] call", {
+      component: "realtime",
+      handler: "tool",
+      step: "start",
+      tool: name,
+    });
     try {
       const result = await this.opts.tools.execute(name, args);
       if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-        console.error("[tools] Realtime socket closed before returning tool result");
+        logger.error("[tools] Realtime socket closed before returning tool result", {
+          component: "realtime",
+          handler: "tool",
+          step: "finish",
+          result: "error",
+          tool: name,
+          error_type: "network",
+        });
         return;
       }
       this.send({
@@ -299,8 +324,24 @@ export class RealtimeClient {
         },
       });
       this.send({ type: "response.create" });
+      logger.info("[tools] call finished", {
+        component: "realtime",
+        handler: "tool",
+        step: "finish",
+        result: "success",
+        tool: name,
+      });
     } catch (err) {
-      console.error(`[tools] ${name} failed:`, err);
+      const errorType = classifyError(err);
+      recordVoiceError({ errorType, handler: "tool" });
+      logger.exception(`[tools] ${name} failed`, err, {
+        component: "realtime",
+        handler: "tool",
+        step: "finish",
+        result: "error",
+        tool: name,
+        error_type: errorType,
+      });
       if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
       try {
         this.send({
@@ -316,7 +357,12 @@ export class RealtimeClient {
         });
         this.send({ type: "response.create" });
       } catch (sendErr) {
-        console.error("[tools] failed to send error result:", sendErr);
+        logger.exception("[tools] failed to send error result", sendErr, {
+          component: "realtime",
+          handler: "tool",
+          tool: name,
+          error_type: classifyError(sendErr),
+        });
       }
     }
   }

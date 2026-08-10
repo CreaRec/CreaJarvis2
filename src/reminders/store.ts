@@ -3,6 +3,7 @@ import {
   type PrismaClient,
   type ReminderStatus as PrismaStatus,
 } from "@prisma/client";
+import { logger } from "../log.js";
 import type { Embedder } from "../memory/embedder.js";
 import { formatLocal } from "../utils/time/index.js";
 import { nextFireAt } from "./recurrence.js";
@@ -415,10 +416,12 @@ export class ReminderStore {
           return this.getByIds(rows.map((r) => r.id));
         }
       } catch (err) {
-        console.warn(
-          "[reminders] vector search failed, keyword fallback:",
-          err,
-        );
+        logger.warn("[reminders] vector search failed, keyword fallback", {
+          component: "reminders",
+          handler: "tool",
+          step: "search",
+          error_message: err instanceof Error ? err.message : String(err),
+        });
       }
     }
     return this.keywordSearch(query, limit);
