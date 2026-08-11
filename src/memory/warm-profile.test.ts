@@ -35,6 +35,8 @@ describe("buildSessionInstructions", () => {
       nightHour: 22,
       timeZone: "Europe/Moscow",
     });
+    expect(text).toContain("Language: speak and understand Russian only");
+    expect(text).toContain("Do not switch the conversation to English, Polish");
     expect(text).toContain("User timezone: Europe/Moscow");
     expect(text).toContain("today at 9:00 / 13:00 / 19:00 / 22:00");
     expect(text).toContain("reminder_* tools");

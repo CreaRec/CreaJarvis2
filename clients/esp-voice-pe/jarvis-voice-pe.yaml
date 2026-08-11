@@ -24,7 +24,7 @@ esphome:
   min_version: 2026.6.0
   project:
     name: crearec.jarvis_voice_pe
-    version: "0.1.7"
+    version: "0.1.8"
 
 packages:
   # Patched upstream (no voice_assistant; center/wake → jarvis_gateway)
@@ -66,10 +66,55 @@ button:
     name: "Jarvis wake"
     id: jarvis_wake_button
     on_press:
+      - micro_wake_word.stop:
       - jarvis_gateway.wake:
           id: jarvis
 
+globals:
+  # one-shot: prefer hey_jarvis (first-boot mWW enables only model[0]=okay_nabu)
+  - id: jarvis_mww_models_ready
+    type: bool
+    restore_value: no
+    initial_value: "false"
+
+script:
+  # Start mWW when Jarvis idle/armed (LED idle); stop during active session + mute.
+  - id: jarvis_sync_mww
+    mode: single
+    then:
+      - if:
+          condition:
+            lambda: return !id(jarvis_mww_models_ready);
+          then:
+            - micro_wake_word.enable_model: hey_jarvis
+            - micro_wake_word.disable_model: okay_nabu
+            - micro_wake_word.disable_model: hey_mycroft
+            - lambda: id(jarvis_mww_models_ready) = true;
+      - if:
+          condition:
+            and:
+              - lambda: return id(jarvis).is_ready();
+              - switch.is_off: master_mute_switch
+              - lambda: |-
+                  return id(jarvis).voice_phase() == ${voice_assist_idle_phase_id};
+              - not:
+                  micro_wake_word.is_running:
+          then:
+            - micro_wake_word.start:
+      - if:
+          condition:
+            and:
+              - micro_wake_word.is_running:
+              - or:
+                  - switch.is_on: master_mute_switch
+                  - lambda: |-
+                      return !id(jarvis).is_ready() ||
+                             id(jarvis).voice_phase() != ${voice_assist_idle_phase_id};
+          then:
+            - micro_wake_word.stop:
+
 # Sync LED from Jarvis; clear HA init lock once Core hello.ok (HA API optional).
+# Keep on-device "Hey Jarvis" running while idle/armed.
 interval:
   - interval: 250ms
     then:
@@ -79,3 +124,4 @@ interval:
           }
           id(voice_assistant_phase) = id(jarvis).voice_phase();
       - script.execute: control_leds
+      - script.execute: jarvis_sync_mww

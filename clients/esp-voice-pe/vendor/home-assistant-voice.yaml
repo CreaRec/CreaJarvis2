@@ -359,6 +359,7 @@ binary_sensor:
                                       condition:
                                         switch.is_off: master_mute_switch
                                       then:
+                                        - micro_wake_word.stop:
                                         - script.execute:
                                             id: play_sound
                                             priority: true
@@ -1735,6 +1736,8 @@ micro_wake_word:
                           announcement: true
                           id: external_media_player
                     else:
+                      # Free mic for Jarvis session; sync script restarts mWW in IDLE/ARMED.
+                      - micro_wake_word.stop:
                       - if:
                           condition:
                             switch.is_on: wake_sound

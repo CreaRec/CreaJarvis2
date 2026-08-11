@@ -32,6 +32,14 @@ export interface RealtimeClientOptions {
   onTranscript?: (role: "user" | "assistant", text: string) => void;
 }
 
+/** Input ASR for goodbye / UI transcripts — bias to Russian (session instructions do not). */
+export const INPUT_AUDIO_TRANSCRIPTION = {
+  model: "gpt-4o-mini-transcribe",
+  language: "ru",
+  prompt:
+    "Русская речь. Имя ассистента — Джарвис. Часто: спасибо Джарвис, пока Джарвис, до свидания.",
+} as const;
+
 export class RealtimeClient {
   private ws: WebSocket | null = null;
   private readonly pendingArgs = new Map<string, { name: string; args: string }>();
@@ -123,7 +131,7 @@ export class RealtimeClient {
             format: { type: "audio/pcm", rate: 24000 },
             // PTT: manual commit, no server VAD
             turn_detection: null,
-            transcription: { model: "gpt-4o-mini-transcribe" },
+            transcription: { ...INPUT_AUDIO_TRANSCRIPTION },
           },
           output: {
             format: { type: "audio/pcm", rate: 24000 },

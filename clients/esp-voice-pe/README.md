@@ -51,9 +51,12 @@ Uses vendored `vendor/home-assistant-voice.yaml` (Assist removed; center/wake �
 
 Do **not** rely on “Take control” discovery in Docker Desktop (mDNS often empty).
 
-## Verify
+## Wake word
 
-1. Core health: `curl http://<CORE_LAN_IP>:8787/health`
+On-device **Hey Jarvis** (`micro_wake_word` model `hey_jarvis`). Firmware starts mWW after Core `hello.ok` while idle/armed; stops during an active session and when Mute is on. Center button / HA **Jarvis wake** still work.
+
+Say clearly: **“Hey Jarvis”** (English). Russian «Джарвис» is not in this model.
+
 2. After connect + hello:  
    `curl -H "Authorization: Bearer $JARVIS_GATEWAY_TOKEN" http://<CORE_LAN_IP>:8787/debug/devices`  
    → device `kind: esp`, `online: true`
