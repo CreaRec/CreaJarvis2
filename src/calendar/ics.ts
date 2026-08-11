@@ -1,3 +1,5 @@
+import { zonedLocalToUtc } from "../utils/time/index.js";
+
 const DEFAULT_DURATION_MS = 30 * 60 * 1000;
 
 export const DEFAULT_EVENT_DURATION_MS = DEFAULT_DURATION_MS;
@@ -254,25 +256,47 @@ function unfoldIcs(raw: string): string {
   return raw.replace(/\r\n[ \t]/g, "").replace(/\n[ \t]/g, "");
 }
 
-function parseIcsDateTime(value: string): Date | null {
+function parseIcsDateTime(value: string, timeZone?: string | null): Date | null {
   const v = value.trim();
   const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z)?$/.exec(v);
   if (!m) return null;
   const [, y, mo, d, h, mi, s, z] = m;
+  const year = +y!;
+  const month = +mo!;
+  const day = +d!;
+  const hour = +h!;
+  const minute = +mi!;
+  const second = +s!;
   if (z) {
-    return new Date(
-      Date.UTC(+y!, +mo! - 1, +d!, +h!, +mi!, +s!),
-    );
+    return new Date(Date.UTC(year, month - 1, day, hour, minute, second));
   }
-  // Floating / TZID-local without offset: treat as UTC components for listing.
-  // Callers that need precise local display should use reminder link data.
-  return new Date(Date.UTC(+y!, +mo! - 1, +d!, +h!, +mi!, +s!));
+  if (timeZone) {
+    return zonedLocalToUtc(timeZone, year, month, day, hour, minute, second);
+  }
+  // Floating local (no TZID): treat civil components as UTC.
+  return new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+}
+
+function propField(
+  block: string,
+  name: string,
+): { params: string; value: string } | null {
+  const re = new RegExp(`(?:^|\\n)${name}((?:;[^:\\n]*)?):([^\\n]*)`, "i");
+  const m = re.exec(block);
+  if (!m) return null;
+  return { params: m[1] ?? "", value: (m[2] ?? "").trim() };
 }
 
 function propValue(block: string, name: string): string | null {
-  const re = new RegExp(`(?:^|\\n)${name}(?:;[^:\\n]*)?:([^\\n]*)`, "i");
-  const m = re.exec(block);
-  return m?.[1]?.trim() ?? null;
+  return propField(block, name)?.value ?? null;
+}
+
+/** Extract TZID=… from ICS property params (supports quoted values). */
+export function tzidFromParams(params: string): string | null {
+  const m = /;TZID=("([^"]+)"|([^;:]+))/i.exec(params);
+  if (!m) return null;
+  const tz = (m[2] ?? m[3] ?? "").trim();
+  return tz || null;
 }
 
 function parseGeo(raw: string | null): { lat: number; lon: number } | null {
@@ -296,13 +320,17 @@ export function parseFirstVEvent(ics: string): ParsedCalendarEvent | null {
   const summary = propValue(block, "SUMMARY");
   const description = propValue(block, "DESCRIPTION");
   const location = propValue(block, "LOCATION");
-  const dtStart = propValue(block, "DTSTART");
-  const dtEnd = propValue(block, "DTEND");
+  const dtStart = propField(block, "DTSTART");
+  const dtEnd = propField(block, "DTEND");
   return {
     uid,
     title: summary ? unescapeIcsText(summary) : "",
-    start: dtStart ? parseIcsDateTime(dtStart) : null,
-    end: dtEnd ? parseIcsDateTime(dtEnd) : null,
+    start: dtStart
+      ? parseIcsDateTime(dtStart.value, tzidFromParams(dtStart.params))
+      : null,
+    end: dtEnd
+      ? parseIcsDateTime(dtEnd.value, tzidFromParams(dtEnd.params))
+      : null,
     notes: description ? unescapeIcsText(description) : null,
     location: location ? unescapeIcsText(location) : null,
     geo: parseGeo(propValue(block, "GEO")),

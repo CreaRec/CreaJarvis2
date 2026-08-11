@@ -539,6 +539,24 @@ export function createCalendarTools(deps: {
           patch.end = new Date(start.getTime() + duration);
         }
 
+        // When rewriting VEVENT without an explicit start from the model, pin
+        // start (and end if needed) from the linked reminder so a prior bad
+        // TZID parse in CalDAV cannot shift the wall clock.
+        const rewritingWithoutExplicitStart =
+          parsed.data.start === undefined &&
+          (locationInputProvided ||
+            parsed.data.title !== undefined ||
+            parsed.data.notes !== undefined ||
+            parsed.data.end !== undefined);
+        if (rewritingWithoutExplicitStart) {
+          patch.start = reminder.fireAt;
+          if (parsed.data.end === undefined) {
+            patch.end = new Date(
+              reminder.fireAt.getTime() + eventDurationMs(reminder),
+            );
+          }
+        }
+
         if (parsed.data.notes !== undefined) {
           const locForNotes = resolveLocation(reminder, parsed.data);
           patch.description = assembleEventDescription({

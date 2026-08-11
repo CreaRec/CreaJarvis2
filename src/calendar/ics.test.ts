@@ -139,7 +139,7 @@ describe("buildVEventIcs", () => {
 });
 
 describe("parseFirstVEvent", () => {
-  it("parses UID summary and datetimes", () => {
+  it("parses UID summary and TZID datetimes as zone-local instants", () => {
     const ics = [
       "BEGIN:VCALENDAR",
       "BEGIN:VEVENT",
@@ -158,8 +158,25 @@ describe("parseFirstVEvent", () => {
     expect(parsed?.location).toBeNull();
     expect(parsed?.geo).toBeNull();
     expect(parsed?.alarmMinutesBefore).toEqual([]);
-    expect(parsed?.start?.toISOString()).toBe("2024-06-01T15:00:00.000Z");
-    expect(parsed?.end?.toISOString()).toBe("2024-06-01T15:30:00.000Z");
+    // 15:00 CDT = 20:00 UTC
+    expect(parsed?.start?.toISOString()).toBe("2024-06-01T20:00:00.000Z");
+    expect(parsed?.end?.toISOString()).toBe("2024-06-01T20:30:00.000Z");
+  });
+
+  it("parses quoted TZID params", () => {
+    const ics = [
+      "BEGIN:VCALENDAR",
+      "BEGIN:VEVENT",
+      "UID:quoted",
+      "SUMMARY:Q",
+      'DTSTART;TZID="America/Chicago":20240601T090000',
+      'DTEND;TZID="America/Chicago":20240601T094500',
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+    const parsed = parseFirstVEvent(ics);
+    expect(parsed?.start?.toISOString()).toBe("2024-06-01T14:00:00.000Z");
+    expect(parsed?.end?.toISOString()).toBe("2024-06-01T14:45:00.000Z");
   });
 
   it("parses LOCATION and GEO", () => {
@@ -222,6 +239,58 @@ describe("parseFirstVEvent", () => {
       alarmMinutesBefore: [5, 90],
     });
     expect(parseFirstVEvent(ics)?.alarmMinutesBefore).toEqual([5, 90]);
+  });
+
+  it("round-trips TZID start/end through build → parse → rebuild (location update)", () => {
+    const start = new Date("2026-08-24T14:00:00.000Z"); // 09:00 Chicago
+    const end = new Date("2026-08-24T14:30:00.000Z");
+    const tz = "America/Chicago";
+    const created = buildVEventIcs({
+      uid: "ukol",
+      title: "Укол",
+      start,
+      end,
+      timeZone: tz,
+      alarmMinutesBefore: [],
+    });
+    const parsed = parseFirstVEvent(created);
+    expect(parsed?.start?.toISOString()).toBe(start.toISOString());
+    expect(parsed?.end?.toISOString()).toBe(end.toISOString());
+
+    // Location-only rewrite must not shift wall times.
+    const rewritten = buildVEventIcs({
+      uid: "ukol",
+      title: "Укол",
+      start: parsed!.start!,
+      end: parsed!.end!,
+      location: "Frontier Allergy",
+      timeZone: tz,
+      alarmMinutesBefore: [],
+    });
+    expect(rewritten).toContain(
+      `DTSTART;TZID=${tz}:${formatIcsLocalDateTime(start, tz)}`,
+    );
+    expect(rewritten).toContain(
+      `DTEND;TZID=${tz}:${formatIcsLocalDateTime(end, tz)}`,
+    );
+
+    // Duration-only end change (45m) keeps start.
+    const end45 = new Date("2026-08-24T14:45:00.000Z");
+    const afterDuration = buildVEventIcs({
+      uid: "ukol",
+      title: "Укол",
+      start: parseFirstVEvent(rewritten)!.start!,
+      end: end45,
+      location: "Frontier Allergy",
+      timeZone: tz,
+      alarmMinutesBefore: [],
+    });
+    expect(afterDuration).toContain(
+      `DTSTART;TZID=${tz}:20260824T090000`,
+    );
+    expect(afterDuration).toContain(
+      `DTEND;TZID=${tz}:20260824T094500`,
+    );
   });
 });
 

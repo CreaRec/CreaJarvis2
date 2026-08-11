@@ -425,6 +425,92 @@ describe("createCalendarTools", () => {
     expect(store.update).not.toHaveBeenCalled();
   });
 
+  it("location-only update pins start/end from reminder fireAt", async () => {
+    const linked = makeRecord({
+      calendarUid: "uid-1",
+      calendarHref: "https://x/uid-1.ics",
+      fireAt: new Date("2026-08-24T14:00:00.000Z"),
+      calendarEndAt: new Date("2026-08-24T14:30:00.000Z"),
+    });
+    const store = makeStore({
+      getById: vi.fn().mockResolvedValue(linked),
+      update: vi.fn().mockResolvedValue(linked),
+    });
+    const updateEvent = vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        uid: "uid-1",
+        href: "https://x/uid-1.ics",
+        end: new Date("2026-08-24T14:30:00.000Z"),
+      },
+    });
+    const calendar = makeCalendar({ updateEvent });
+    const gw = new ToolGateway();
+    for (const tool of createCalendarTools({
+      calendar,
+      store,
+      config: makeConfig(),
+    })) {
+      gw.register(tool);
+    }
+    const result = await gw.execute("calendar_update_event", {
+      reminder_id: REM_ID,
+      location_name: "Clinic",
+      location_address: "1 Main St",
+    });
+    expect(result.ok).toBe(true);
+    expect(updateEvent).toHaveBeenCalledWith(
+      "https://x/uid-1.ics",
+      expect.objectContaining({
+        start: new Date("2026-08-24T14:00:00.000Z"),
+        end: new Date("2026-08-24T14:30:00.000Z"),
+        location: "1 Main St",
+      }),
+    );
+  });
+
+  it("end-only duration update pins start from reminder fireAt", async () => {
+    const linked = makeRecord({
+      calendarUid: "uid-1",
+      calendarHref: "https://x/uid-1.ics",
+      fireAt: new Date("2026-08-24T14:00:00.000Z"),
+      calendarEndAt: new Date("2026-08-24T14:30:00.000Z"),
+    });
+    const store = makeStore({
+      getById: vi.fn().mockResolvedValue(linked),
+      update: vi.fn().mockResolvedValue(linked),
+    });
+    const updateEvent = vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        uid: "uid-1",
+        href: "https://x/uid-1.ics",
+        end: new Date("2026-08-24T14:45:00.000Z"),
+      },
+    });
+    const calendar = makeCalendar({ updateEvent });
+    const gw = new ToolGateway();
+    for (const tool of createCalendarTools({
+      calendar,
+      store,
+      config: makeConfig(),
+    })) {
+      gw.register(tool);
+    }
+    const result = await gw.execute("calendar_update_event", {
+      reminder_id: REM_ID,
+      end: "2026-08-24T14:45:00.000Z",
+    });
+    expect(result.ok).toBe(true);
+    expect(updateEvent).toHaveBeenCalledWith(
+      "https://x/uid-1.ics",
+      expect.objectContaining({
+        start: new Date("2026-08-24T14:00:00.000Z"),
+        end: new Date("2026-08-24T14:45:00.000Z"),
+      }),
+    );
+  });
+
   it("create passes custom and empty alarm_minutes_before", async () => {
     const reminder = makeRecord();
     const linked = makeRecord({
