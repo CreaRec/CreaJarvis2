@@ -24,12 +24,17 @@ import { toItemPublic, type PlanStore } from "../plans/store.js";
 import type { DeviceRegistry } from "../reminders/device-registry.js";
 import { toPublic, type ReminderStore } from "../reminders/store.js";
 import type { ToolGateway } from "../tools/gateway.js";
+import { audioEgressPolicyForKind } from "./audio-egress-policy.js";
+import { PacedAudioEgress } from "./paced-audio-egress.js";
 import {
   ACK_PLAY_PROMPT,
   parseClientInbound,
   type ClientInbound,
+  type DeviceKind,
 } from "./voice-protocol.js";
 import { VoiceTurnTracker } from "./voice-turn-tracker.js";
+
+export { chunkBase64Audio } from "./audio-chunk.js";
 
 export type ClientOutbound =
   | { type: "hello.ok"; deviceId: string; serverTime: string }
@@ -60,17 +65,6 @@ export type ClientOutbound =
     };
 
 export type { ClientInbound };
-
-/** Split base64 audio into WS-friendly chunks (length multiple of 4). */
-export function chunkBase64Audio(audio: string, chunkSize = 4096): string[] {
-  const size = Math.max(4, chunkSize - (chunkSize % 4));
-  if (audio.length <= size) return [audio];
-  const out: string[] = [];
-  for (let i = 0; i < audio.length; i += size) {
-    out.push(audio.slice(i, i + size));
-  }
-  return out;
-}
 
 /**
  * Send `ready` only once per voice session (PE → ack.play).
@@ -154,6 +148,8 @@ export class VoiceGateway {
     let realtime: RealtimeClient | null = null;
     let realtimeReadyAnnounced = false;
     let deviceId: string | null = null;
+    let deviceKind: DeviceKind | null = null;
+    let audioEgress: PacedAudioEgress | null = null;
     let helloDone = false;
     let sessionStartedAt: number | null = null;
     let sessionResult: VoiceResult = "success";
@@ -164,6 +160,28 @@ export class VoiceGateway {
       if (socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify(msg));
       }
+    };
+
+    const ensureAudioEgress = (): PacedAudioEgress => {
+      if (!audioEgress) {
+        const policy = audioEgressPolicyForKind(deviceKind);
+        if (policy.mode !== "none") {
+          logger.info("[voice] audio egress pacing enabled", {
+            component: "voice",
+            handler: "session",
+            step: "audio_egress",
+            device_kind: deviceKind ?? "unknown",
+            max_ahead_ms: policy.maxAheadMs,
+            sample_rate: policy.sampleRate,
+            ...(deviceId ? { device_id: deviceId } : {}),
+          });
+        }
+        audioEgress = new PacedAudioEgress({
+          policy,
+          sendAudioDelta: (audio) => send({ type: "audio.delta", audio }),
+        });
+      }
+      return audioEgress;
     };
 
     const finishSessionMetrics = (reason: string) => {
@@ -186,6 +204,7 @@ export class VoiceGateway {
       });
       sessionStartedAt = null;
       turns.clear();
+      audioEgress?.clear();
     };
 
     const ensureRealtime = async () => {
@@ -215,9 +234,7 @@ export class VoiceGateway {
         instructions,
         tools: this.deps.tools,
         onAudioDelta: (audio) => {
-          for (const part of chunkBase64Audio(audio)) {
-            send({ type: "audio.delta", audio: part });
-          }
+          ensureAudioEgress().push(audio);
         },
         onTranscript: (role, text) => {
           if (role === "user") {
@@ -232,7 +249,7 @@ export class VoiceGateway {
           }
           send({ type: "transcript", role, text });
         },
-        onEvent: (event) => {
+        onEvent: async (event) => {
           if (String(event.type) !== "response.done") return;
           const response = event.response as
             | { output?: Array<{ type?: string }> }
@@ -241,6 +258,8 @@ export class VoiceGateway {
             (item) => item.type === "function_call",
           );
           if (!hasFunctionCall) {
+            // Wait for paced audio to leave Core before signaling done to client.
+            await ensureAudioEgress().flush();
             turns.finish("response_done");
             send({ type: "response.done" });
           }
@@ -275,6 +294,7 @@ export class VoiceGateway {
     };
 
     const releaseRealtime = async (reason: string) => {
+      audioEgress?.clear();
       if (realtime) {
         await realtime.close();
         realtime = null;
@@ -344,6 +364,8 @@ export class VoiceGateway {
               { room: saved.room, purpose: saved.purpose },
             );
             deviceId = saved.id;
+            deviceKind = saved.kind;
+            audioEgress = null; // recreate with kind policy on next audio
             helloDone = true;
             logger.info("[voice] hello ok", {
               component: "voice",
@@ -417,6 +439,8 @@ export class VoiceGateway {
               sessionResult = "success";
               sessionRecorded = false;
               realtimeReadyAnnounced = false;
+              audioEgress?.clear();
+              audioEgress = null;
               await withVoiceSessionSpan(
                 "voice.session",
                 { device_id: deviceId, handler: "session" },
@@ -474,6 +498,7 @@ export class VoiceGateway {
             case "audio.commit": {
               if (!requireOwner()) break;
               const rt = await ensureRealtime();
+              ensureAudioEgress().beginTurn();
               turns.begin("audio");
               logger.info("[voice] turn started", {
                 component: "voice",
@@ -488,6 +513,7 @@ export class VoiceGateway {
             case "text": {
               if (!requireOwner()) break;
               const rt = await ensureRealtime();
+              ensureAudioEgress().beginTurn();
               turns.begin("text");
               logger.info("[voice] turn started", {
                 component: "voice",
@@ -504,6 +530,7 @@ export class VoiceGateway {
             case "ack.play": {
               if (!requireOwner()) break;
               const rt = await ensureRealtime();
+              ensureAudioEgress().beginTurn();
               turns.begin("ack");
               logger.info("[voice] ack", {
                 component: "voice",
@@ -558,6 +585,7 @@ export class VoiceGateway {
     socket.on("close", () => {
       const { wasVoiceOwner } = this.deps.deviceRegistry.unregister(socket);
       void wasVoiceOwner;
+      audioEgress?.clear();
       void realtime?.close();
       realtime = null;
       realtimeReadyAnnounced = false;

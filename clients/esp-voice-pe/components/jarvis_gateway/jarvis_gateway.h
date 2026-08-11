@@ -9,10 +9,11 @@
 #include "fsm.h"
 #include "goodbye.h"
 #include "base64.h"
+#include "play_ring.h"
 
+#include <esp_heap_caps.h>
 #include <esp_websocket_client.h>
 
-#include <deque>
 #include <string>
 #include <vector>
 
@@ -76,6 +77,8 @@ class JarvisGateway : public Component {
   void stop_mic_();
   void on_mic_data_(const std::vector<uint8_t> &data);
   void play_pcm_(const uint8_t *data, size_t len);
+  bool ensure_play_ring_(size_t cap);
+  void free_play_ring_();
   void finish_playback_drain_(float now_s);
   void set_phase_(LedPhase p);
 
@@ -115,8 +118,7 @@ class JarvisGateway : public Component {
   crea_jarvis::logic::VoiceFsm fsm_{};
   LedPhase phase_{LedPhase::NOT_READY};
 
-  std::deque<std::vector<uint8_t>> play_queue_;
-  size_t play_offset_{0};
+  crea_jarvis::logic::PlayRing play_ring_{};
   bool playing_{false};
   bool response_done_pending_{false};
   uint32_t last_play_ms_{0};

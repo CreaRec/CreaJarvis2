@@ -4,7 +4,9 @@ import { logger } from "../log.js";
 import { classifyError, recordVoiceError } from "../telemetry.js";
 import { parseJsonArgs, type ToolGateway } from "../tools/gateway.js";
 
-export type RealtimeEventHandler = (event: Record<string, unknown>) => void;
+export type RealtimeEventHandler = (
+  event: Record<string, unknown>,
+) => void | Promise<void>;
 
 /** Thrown when sending on a closed/missing OpenAI Realtime socket. */
 export class RealtimeNotOpenError extends Error {
@@ -210,7 +212,7 @@ export class RealtimeClient {
       return;
     }
 
-    this.opts.onEvent?.(event);
+    await this.opts.onEvent?.(event);
     const type = String(event.type ?? "");
 
     // GA: response.output_audio.delta; keep legacy name as fallback

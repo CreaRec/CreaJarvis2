@@ -3,6 +3,7 @@
 #include "base64.h"
 #include "mic_convert.h"
 #include "playback_drain.h"
+#include "play_ring.h"
 
 #include <cassert>
 #include <cmath>
@@ -185,6 +186,39 @@ static void test_playback_drain() {
   std::puts("test_playback_drain OK");
 }
 
+static void test_play_ring() {
+  uint8_t storage[16];
+  crea_jarvis::logic::PlayRing ring;
+  ring.buf = storage;
+  ring.cap = sizeof(storage);
+  ring.clear();
+
+  uint8_t a[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+  assert(ring.write(a, 10) == 10);
+  assert(ring.size() == 10);
+
+  size_t n = 0;
+  const uint8_t *p = ring.peek_contiguous(&n);
+  assert(p && n == 10);
+  assert(p[0] == 1 && p[9] == 10);
+  ring.consume(6);
+  assert(ring.size() == 4);
+
+  // Wrap: free at front, write more than contiguous free at end
+  uint8_t b[] = {11, 12, 13, 14, 15, 16, 17, 18};
+  assert(ring.write(b, 8) == 8);  // 4 + 8 = 12, cap 16
+  assert(ring.size() == 12);
+
+  // Fill to capacity then partial write
+  uint8_t c[] = {20, 21, 22, 23, 24, 25};
+  assert(ring.write(c, 6) == 4);  // only 4 free
+  assert(ring.free_space() == 0);
+
+  ring.clear();
+  assert(ring.empty());
+  std::puts("test_play_ring OK");
+}
+
 int main() {
   test_fsm_wake_ack_listen_commit();
   test_fsm_wake_cancels_open_session();
@@ -193,6 +227,7 @@ int main() {
   test_rms();
   test_mic_convert();
   test_playback_drain();
+  test_play_ring();
   std::puts("ALL PASSED");
   return 0;
 }
