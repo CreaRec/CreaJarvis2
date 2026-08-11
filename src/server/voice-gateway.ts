@@ -8,7 +8,10 @@ import {
   type DeviceStore,
 } from "../devices/store.js";
 import { logger, truncateForLog } from "../log.js";
-import { RealtimeClient } from "../realtime/client.js";
+import {
+  isRealtimeNotOpenError,
+  RealtimeClient,
+} from "../realtime/client.js";
 import {
   classifyError,
   recordHandledSession,
@@ -67,6 +70,14 @@ export function chunkBase64Audio(audio: string, chunkSize = 4096): string[] {
     out.push(audio.slice(i, i + size));
   }
   return out;
+}
+
+/**
+ * Send `ready` only once per voice session (PE → ack.play).
+ * Mid-session Realtime reconnect must not re-announce.
+ */
+export function shouldAnnounceRealtimeReady(alreadyAnnounced: boolean): boolean {
+  return !alreadyAnnounced;
 }
 
 export interface VoiceGatewayDeps {
@@ -141,6 +152,7 @@ export class VoiceGateway {
     _req: IncomingMessage,
   ): Promise<void> {
     let realtime: RealtimeClient | null = null;
+    let realtimeReadyAnnounced = false;
     let deviceId: string | null = null;
     let helloDone = false;
     let sessionStartedAt: number | null = null;
@@ -177,7 +189,23 @@ export class VoiceGateway {
     };
 
     const ensureRealtime = async () => {
-      if (realtime) return realtime;
+      if (realtime?.isOpen()) return realtime;
+
+      if (realtime) {
+        logger.warn("[voice] realtime socket dead — reconnecting", {
+          component: "voice",
+          handler: "realtime",
+          step: "reconnect",
+          ...(deviceId ? { device_id: deviceId } : {}),
+        });
+        try {
+          await realtime.close();
+        } catch {
+          // ignore close races
+        }
+        realtime = null;
+      }
+
       if (!deviceId) {
         throw new Error("deviceId required before Realtime");
       }
@@ -219,8 +247,23 @@ export class VoiceGateway {
         },
       });
       await realtime.connect();
-      send({ type: "ready" });
+      // First successful connect in a voice session: PE waits for ready → ack.
+      // Mid-session reconnect must not re-announce (would restart ack FSM).
+      if (shouldAnnounceRealtimeReady(realtimeReadyAnnounced)) {
+        realtimeReadyAnnounced = true;
+        send({ type: "ready" });
+      }
       return realtime;
+    };
+
+    const dropDeadRealtime = async () => {
+      if (!realtime) return;
+      try {
+        await realtime.close();
+      } catch {
+        // ignore
+      }
+      realtime = null;
     };
 
     const requireOwner = (): boolean => {
@@ -237,6 +280,7 @@ export class VoiceGateway {
         realtime = null;
         send({ type: "session.ended", reason });
       }
+      realtimeReadyAnnounced = false;
       if (deviceId) {
         this.deps.deviceRegistry.releaseVoice(deviceId);
       }
@@ -372,6 +416,7 @@ export class VoiceGateway {
               sessionStartedAt = Date.now();
               sessionResult = "success";
               sessionRecorded = false;
+              realtimeReadyAnnounced = false;
               await withVoiceSessionSpan(
                 "voice.session",
                 { device_id: deviceId, handler: "session" },
@@ -405,8 +450,25 @@ export class VoiceGateway {
             }
             case "audio.append": {
               if (!requireOwner()) break;
-              const rt = await ensureRealtime();
-              rt.appendAudio(msg.audio);
+              // Do not reconnect on every mic chunk (OpenAI handshake is heavy).
+              // If RT died after ack, drop uplink until commit/text/ack reconnects.
+              if (!realtime?.isOpen()) {
+                break;
+              }
+              try {
+                realtime.appendAudio(msg.audio);
+              } catch (err) {
+                if (!isRealtimeNotOpenError(err)) throw err;
+                logger.warn("[voice] drop audio.append — realtime not open", {
+                  component: "voice",
+                  handler: "session",
+                  step: "audio_append",
+                  result: "skipped",
+                  error_type: "openai",
+                  ...(deviceId ? { device_id: deviceId } : {}),
+                });
+                await dropDeadRealtime();
+              }
               break;
             }
             case "audio.commit": {
@@ -463,6 +525,20 @@ export class VoiceGateway {
             }
           }
         } catch (err) {
+          // Dead Realtime must not paint PE red or fail the session metrics;
+          // next commit/text/ack will reconnect via ensureRealtime.
+          if (isRealtimeNotOpenError(err)) {
+            logger.warn("[voice] realtime not open — cleared for reconnect", {
+              component: "voice",
+              handler: "session",
+              step: "realtime_guard",
+              result: "skipped",
+              error_type: "openai",
+              ...(deviceId ? { device_id: deviceId } : {}),
+            });
+            await dropDeadRealtime();
+            return;
+          }
           const message = err instanceof Error ? err.message : String(err);
           const errorType = classifyError(err);
           sessionResult = "error";
@@ -481,15 +557,11 @@ export class VoiceGateway {
 
     socket.on("close", () => {
       const { wasVoiceOwner } = this.deps.deviceRegistry.unregister(socket);
-      if (wasVoiceOwner) {
-        void realtime?.close();
-        realtime = null;
-        finishSessionMetrics("socket_close");
-      } else {
-        void realtime?.close();
-        realtime = null;
-        finishSessionMetrics("socket_close");
-      }
+      void wasVoiceOwner;
+      void realtime?.close();
+      realtime = null;
+      realtimeReadyAnnounced = false;
+      finishSessionMetrics("socket_close");
     });
   }
 }

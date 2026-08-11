@@ -85,3 +85,32 @@ def test_idle_timeout_ends_session() -> None:
     time.sleep(0.2)
     assert fsm.state == State.IDLE
     assert ended == [1]
+
+
+def test_wake_cancels_open_session() -> None:
+    ended: list[int] = []
+    started: list[int] = []
+    fsm = VoiceFsm(
+        config=FsmConfig(idle_timeout_s=3600),
+        on_start_session=lambda: started.append(1),
+        on_end_session=lambda: ended.append(1),
+    )
+
+    fsm.on_wake()
+    assert fsm.state == State.CONNECTING
+    assert started == [1]
+
+    fsm.on_wake()  # cancel while CONNECTING
+    assert fsm.state == State.IDLE
+    assert ended == [1]
+
+    fsm.state = State.LISTENING
+    fsm.on_wake()
+    assert fsm.state == State.IDLE
+    assert ended == [1, 1]
+
+    fsm.state = State.ARMED
+    fsm.on_wake()
+    assert fsm.state == State.IDLE
+    assert ended == [1, 1, 1]
+    assert started == [1]  # no new session from cancel wakes

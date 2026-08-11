@@ -37,10 +37,12 @@ jobs:
           python-version: "3.11"
 
       # PySide6 needs EGL+xcb; sounddevice needs PortAudio (even offscreen).
+      # g++: ESP Voice PE host_tests (header-only, no ESPHome/IDF).
       - name: Install desktop runtime libraries
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
+            g++ \
             libportaudio2 \
             libegl1 \
             libgl1 \
@@ -66,6 +68,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
           pytest
+
+      - name: ESP Voice PE host tests
+        working-directory: clients/esp-voice-pe
+        run: ./host_tests/run.sh
 
       - uses: docker/setup-buildx-action@v4
 

@@ -2,7 +2,7 @@
 
 ESPHome external component `jarvis_gateway` turns a Voice PE into a headless CreaJarvis client (`kind: esp`) over the same Voice Gateway protocol as the desktop app.
 
-MVP: wake / center button (via HA **Jarvis wake** button or patched automations) → `ack.play` («Я тут») → mic uplink → reply on speaker → ARMED 5 min → goodbye → `session.end`. Notify digests pulse LED + beep.
+MVP: wake / center button (via HA **Jarvis wake** button or patched automations) → `ack.play` («Я тут») → mic uplink → reply on speaker → ARMED 5 min → goodbye → `session.end`. Second wake while the session is open cancels it (`session.end`, stops playback). Notify digests pulse LED + beep.
 
 ## Prerequisites
 
@@ -59,7 +59,8 @@ Do **not** rely on “Take control” discovery in Docker Desktop (mDNS often em
    → device `kind: esp`, `online: true`
 3. Press **Jarvis wake** (or button) → hear «Я тут»
 4. Speak a command → reply on speaker
-5. «Спасибо Джарвис» → session ends after playback
+5. Press wake again while listening/speaking/armed → session cancels
+6. «Спасибо Джарвис» → session ends after playback
 
 ## Rollback
 
@@ -84,7 +85,8 @@ chmod +x host_tests/run.sh
 ./host_tests/run.sh
 ```
 
-CI also runs `src/esp-voice-pe/goodbye.test.ts` via `npm test`.
+GitHub Actions (`test` job) runs `./host_tests/run.sh`.  
+`npm test` also covers `src/esp-voice-pe/goodbye.test.ts`.
 
 ## Protocol (summary)
 
@@ -92,7 +94,7 @@ CI also runs `src/esp-voice-pe/goodbye.test.ts` via `npm test`.
 2. `session.start` → `ready` → `ack.play` → `audio.delta`*
 3. `audio.append` (PCM16 @ 24 kHz base64) → `audio.commit`
 4. `audio.delta`* → `response.done`
-5. ARMED / idle 5 min → `session.end`
+5. ARMED / idle 5 min → `session.end`; second wake while open → cancel `session.end`
 6. Notify: `reminder.*` / `plan.today_digest` → beep + LED phase
 
 See ADR-005 / ADR-006 and desktop `fsm.py`.

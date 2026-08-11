@@ -97,12 +97,11 @@ class VoiceFsm:
 
     def on_wake(self) -> None:
         with self._lock:
-            if self.state not in (State.IDLE, State.ARMED):
+            # Session already open (including ARMED) → cancel / session.end.
+            if self.state != State.IDLE:
+                self._go_idle(end_session=True)
                 return
             self.touch()
-            if self.state == State.ARMED:
-                self._begin_listening()
-                return
             self._set_state(State.CONNECTING)
             if self.on_start_session:
                 self.on_start_session()

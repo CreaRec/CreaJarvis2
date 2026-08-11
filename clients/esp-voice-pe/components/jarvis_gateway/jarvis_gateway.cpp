@@ -406,7 +406,9 @@ void JarvisGateway::wake() {
     set_phase_(LedPhase::ERROR);
     return;
   }
-  ESP_LOGI(TAG, "wake");
+  const bool cancel =
+      fsm_.state != crea_jarvis::logic::State::IDLE;
+  ESP_LOGI(TAG, cancel ? "wake → cancel session" : "wake");
   ack_heard_audio_ = false;
   float now = millis() / 1000.0f;
   fsm_.on_wake(now);
@@ -424,7 +426,17 @@ void JarvisGateway::cb_end_session_(void *user) {
   auto *self = static_cast<JarvisGateway *>(user);
   self->send_text_("{\"type\":\"session.end\"}");
   self->stop_mic_();
+  self->play_queue_.clear();
+  self->play_offset_ = 0;
+  self->playing_ = false;
+  self->ack_heard_audio_ = false;
+  self->ack_audio_deadline_ms_ = 0;
+  self->response_done_pending_ = false;
+  self->pending_goodbye_ = false;
+  if (self->speaker_ && self->speaker_->is_running())
+    self->speaker_->stop();
   self->set_phase_(LedPhase::IDLE);
+  ESP_LOGI(TAG, "session.end");
 }
 
 void JarvisGateway::cb_ack_play_(void *user) {

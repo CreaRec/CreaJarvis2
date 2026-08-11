@@ -6,6 +6,21 @@ import { parseJsonArgs, type ToolGateway } from "../tools/gateway.js";
 
 export type RealtimeEventHandler = (event: Record<string, unknown>) => void;
 
+/** Thrown when sending on a closed/missing OpenAI Realtime socket. */
+export class RealtimeNotOpenError extends Error {
+  constructor(message = "Realtime WebSocket is not open") {
+    super(message);
+    this.name = "RealtimeNotOpenError";
+  }
+}
+
+export function isRealtimeNotOpenError(err: unknown): boolean {
+  return (
+    err instanceof RealtimeNotOpenError ||
+    (err instanceof Error && err.message === "Realtime WebSocket is not open")
+  );
+}
+
 export interface RealtimeClientOptions {
   config: AppConfig;
   instructions: string;
@@ -22,6 +37,11 @@ export class RealtimeClient {
   private closing = false;
 
   constructor(private readonly opts: RealtimeClientOptions) {}
+
+  /** True while the OpenAI Realtime socket is OPEN (not reconnecting/closed). */
+  isOpen(): boolean {
+    return this.ws != null && this.ws.readyState === WebSocket.OPEN;
+  }
 
   async connect(): Promise<void> {
     const url = `wss://api.openai.com/v1/realtime?model=${encodeURIComponent(this.opts.config.REALTIME_MODEL)}`;
@@ -77,6 +97,7 @@ export class RealtimeClient {
       void this.handleMessage(data.toString());
     });
     this.ws.on("close", (code, reason) => {
+      this.ws = null;
       if (!this.closing) {
         logger.warn("[realtime] connection closed", {
           component: "realtime",
@@ -159,17 +180,24 @@ export class RealtimeClient {
 
   async close(): Promise<void> {
     this.closing = true;
-    if (!this.ws) return;
-    await new Promise<void>((resolve) => {
-      this.ws!.once("close", () => resolve());
-      this.ws!.close();
-    });
+    const ws = this.ws;
     this.ws = null;
+    if (!ws) return;
+    if (
+      ws.readyState === WebSocket.CLOSED ||
+      ws.readyState === WebSocket.CLOSING
+    ) {
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      ws.once("close", () => resolve());
+      ws.close();
+    });
   }
 
   private send(payload: Record<string, unknown>): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      throw new Error("Realtime WebSocket is not open");
+      throw new RealtimeNotOpenError();
     }
     this.ws.send(JSON.stringify(payload));
   }

@@ -52,13 +52,12 @@ class VoiceFsm {
   void touch(float now_s) { last_active_s_ = now_s; }
 
   void on_wake(float now_s) {
-    if (state != State::IDLE && state != State::ARMED)
-      return;
-    touch(now_s);
-    if (state == State::ARMED) {
-      begin_listening_();
+    // Session already open (including ARMED) → cancel / session.end.
+    if (state != State::IDLE) {
+      go_idle_(true);
       return;
     }
+    touch(now_s);
     set_state_(State::CONNECTING);
     if (cb.on_start_session)
       cb.on_start_session(cb.user);
