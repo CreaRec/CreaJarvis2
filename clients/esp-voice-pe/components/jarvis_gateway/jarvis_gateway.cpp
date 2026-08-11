@@ -487,7 +487,7 @@ void JarvisGateway::cb_state_(crea_jarvis::logic::State old_s, crea_jarvis::logi
       self->set_phase_(LedPhase::REPLYING);
       break;
     case S::ARMED:
-      self->set_phase_(LedPhase::IDLE);
+      self->set_phase_(LedPhase::ARMED);
       break;
   }
 }
@@ -624,6 +624,8 @@ void JarvisGateway::loop() {
     notify_pulse_ = false;
     if (fsm_.state == crea_jarvis::logic::State::IDLE)
       set_phase_(LedPhase::IDLE);
+    else if (fsm_.state == crea_jarvis::logic::State::ARMED)
+      set_phase_(LedPhase::ARMED);
   }
 
   if (ack_audio_deadline_ms_ != 0 && now_ms >= ack_audio_deadline_ms_) {

@@ -10,6 +10,8 @@ substitutions:
   voice_assist_thinking_phase_id: '4'
   # The voice assistant is replying to the command
   voice_assist_replying_phase_id: '5'
+  # Jarvis: session open, waiting for user follow-up
+  voice_assist_armed_phase_id: '6'
   # The voice assistant is not ready
   voice_assist_not_ready_phase_id: '10'
   # The voice assistant encountered an error
@@ -713,6 +715,35 @@ light:
               }
             }
       - addressable_lambda:
+          name: "Armed Follow-up"
+          update_interval: 40ms
+          lambda: |-
+            static uint8_t brightness_step = 0;
+            static bool brightness_decreasing = true;
+            static uint8_t brightness_step_number = 20;
+            if (initial_run) {
+              brightness_step = 5;
+              brightness_decreasing = true;
+            }
+            // Fixed green — distinct from led_ring cyan used for active turn-taking.
+            Color color(0, 255, 64);
+            uint8_t level = uint8_t(255 / brightness_step_number *
+                                    (brightness_step_number - brightness_step));
+            // Keep a visible floor so "waiting for you" never goes fully dark.
+            if (level < 64)
+              level = 64;
+            for (uint8_t i = 0; i < 12; i++) {
+              it[i] = color * level;
+            }
+            if (brightness_decreasing) {
+              brightness_step++;
+            } else {
+              brightness_step--;
+            }
+            if (brightness_step == 0 || brightness_step == brightness_step_number) {
+              brightness_decreasing = !brightness_decreasing;
+            }
+      - addressable_lambda:
           name: "Muted or Silent"
           update_interval: 16ms
           lambda: |-
@@ -1096,6 +1127,8 @@ script:
             id(control_leds_voice_assistant_thinking_phase).execute();
           } else if (id(voice_assistant_phase) == ${voice_assist_replying_phase_id}) {
             id(control_leds_voice_assistant_replying_phase).execute();
+          } else if (id(voice_assistant_phase) == ${voice_assist_armed_phase_id}) {
+            id(control_leds_voice_assistant_armed_phase).execute();
           } else if (id(voice_assistant_phase) == ${voice_assist_error_phase_id}) {
             id(control_leds_voice_assistant_error_phase).execute();
           } else if (id(voice_assistant_phase) == ${voice_assist_not_ready_phase_id}) {
@@ -1216,6 +1249,18 @@ script:
           brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.2f );
           id: voice_assistant_leds
           effect: "Replying"
+
+  # Script executed when Jarvis is armed (waiting for user follow-up)
+  # Soft green pulse on the full ring.
+  - id: control_leds_voice_assistant_armed_phase
+    then:
+      - light.turn_on:
+          brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.2f );
+          red: 0%
+          green: 100%
+          blue: 25%
+          id: voice_assistant_leds
+          effect: "Armed Follow-up"
 
   # Script executed when the voice assistant is in error
   # Fast Red Pulse
@@ -1737,7 +1782,7 @@ micro_wake_word:
                           announcement: true
                           id: external_media_player
                     else:
-                      # Free mic for Jarvis session; sync script restarts mWW in IDLE/ARMED.
+                      # Free mic for Jarvis session; sync script restarts mWW in IDLE only.
                       - micro_wake_word.stop:
                       - if:
                           condition:

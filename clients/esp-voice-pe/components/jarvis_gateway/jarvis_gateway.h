@@ -20,13 +20,15 @@
 namespace esphome {
 namespace jarvis_gateway {
 
-/** LED phase ids matching Voice PE substitutions (idle/listen/think/reply/error). */
+/** LED phase ids matching Voice PE substitutions (idle/listen/think/reply/armed/error). */
 enum class LedPhase : int {
   IDLE = 1,
   WAITING = 2,
   LISTENING = 3,
   THINKING = 4,
   REPLYING = 5,
+  /** Session open, waiting for user follow-up (green pulse). */
+  ARMED = 6,
   NOT_READY = 10,
   ERROR = 11,
   NOTIFY = 12,

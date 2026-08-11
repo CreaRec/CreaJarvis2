@@ -14,6 +14,7 @@ substitutions:
   voice_assist_listening_for_command_phase_id: "3"
   voice_assist_thinking_phase_id: "4"
   voice_assist_replying_phase_id: "5"
+  voice_assist_armed_phase_id: "6"
   voice_assist_not_ready_phase_id: "10"
   voice_assist_error_phase_id: "11"
 
@@ -24,7 +25,7 @@ esphome:
   min_version: 2026.6.0
   project:
     name: crearec.jarvis_voice_pe
-    version: "0.1.11"
+    version: "0.1.12"
 
 packages:
   # Patched upstream (no voice_assistant; center/wake → jarvis_gateway)
