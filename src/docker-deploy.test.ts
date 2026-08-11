@@ -37,4 +37,21 @@ describe("docker deploy contract", () => {
     expect(workflow).toMatch(/NODE_AUTH_TOKEN=\$\{\{\s*secrets\.GITHUB_TOKEN\s*\}\}/);
     expect(workflow).toMatch(/packages:\s*read/);
   });
+
+  it("CI prunes GHCR to keep 10 sha-* tags and preserve main", async () => {
+    const workflow = await readFile(
+      path.join(repoRoot, ".github/workflows/ci-cd.yml"),
+      "utf8",
+    );
+
+    expect(workflow).toMatch(/ghcr_cleanup:/);
+    expect(workflow).toMatch(/dataaxiom\/ghcr-cleanup-action@v1/);
+    expect(workflow).toMatch(/packages:\s*crea-jarvis2\b/);
+    expect(workflow).toMatch(/packages:\s*crea-jarvis2-esp-syslog\b/);
+    expect(workflow).toMatch(/delete-tags:\s*sha-\*/);
+    expect(workflow).toMatch(/keep-n-tagged:\s*"10"/);
+    expect(workflow).toMatch(/exclude-tags:\s*main/);
+    expect(workflow).toMatch(/delete-untagged:\s*true/);
+    expect(workflow).toMatch(/delete-orphaned-images:\s*true/);
+  });
 });

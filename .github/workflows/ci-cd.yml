@@ -307,3 +307,44 @@ jobs:
             docker compose logs --tail=30 esp-syslog-bridge || true
           fi
           EOF
+
+  # Keep last 10 sha-* tags per package; never delete floating :main.
+  # Package Settings → Manage Actions access must grant this repo Admin.
+  ghcr_cleanup:
+    runs-on: ubuntu-latest
+    needs: [publish_core, publish_bridge]
+    if: >-
+      always()
+      && !cancelled()
+      && github.event_name == 'push'
+      && github.ref == 'refs/heads/main'
+      && (
+        needs.publish_core.result == 'success'
+        || needs.publish_bridge.result == 'success'
+      )
+    concurrency:
+      group: ghcr-cleanup
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Prune crea-jarvis2 (keep 10 sha-*)
+        uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          packages: crea-jarvis2
+          delete-tags: sha-*
+          keep-n-tagged: "10"
+          exclude-tags: main
+          delete-untagged: true
+          delete-orphaned-images: true
+
+      - name: Prune crea-jarvis2-esp-syslog (keep 10 sha-*)
+        uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          packages: crea-jarvis2-esp-syslog
+          delete-tags: sha-*
+          keep-n-tagged: "10"
+          exclude-tags: main
+          delete-untagged: true
+          delete-orphaned-images: true

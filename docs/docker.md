@@ -20,6 +20,7 @@ The desktop client is **not** built or deployed. CI runs its pytest suite only. 
    - `services/esp-syslog-bridge/**` → push `crea-jarvis2-esp-syslog`
    - `docker-compose.yml` alone → redeploy without rebuilding images
 4. Actions copies `docker-compose.yml` to the server, exports **only** the image tags published in that run (`IMAGE_TAG` / `BRIDGE_IMAGE_TAG`), then `docker compose pull && docker compose up -d`.
+5. After a successful image publish, `ghcr_cleanup` keeps the **10** newest `sha-*` tags per package, always preserves `:main`, and deletes untagged/orphaned manifests (buildx attestations left behind when tags move).
 
 App secrets stay on the server in `.env`. Postgres data stays in `./data/postgres`. CI never mutates `.env` and never touches Postgres volumes.
 
@@ -38,7 +39,8 @@ After the first successful publish jobs:
 1. Open the `crea-jarvis2` and `crea-jarvis2-esp-syslog` packages under your GitHub user/org.
 2. Link them to the `CreaJarvis2` repository if needed.
 3. Keep packages **Private**.
-4. Ensure the server can pull private GHCR images (same `docker login ghcr.io` used for other bots is fine).
+4. Under each package **Package settings → Manage Actions access**, grant the `CreaJarvis2` repository **Admin** (required for `ghcr_cleanup` to delete old versions with `GITHUB_TOKEN`).
+5. Ensure the server can pull private GHCR images (same `docker login ghcr.io` used for other bots is fine).
 
 ### 2. Deploy directory
 
@@ -154,6 +156,6 @@ docker compose restart esp-syslog-bridge
 
 Deploy joins the tailnet with `tag:ci` via [`tailscale/github-action`](https://github.com/tailscale/github-action), then SSHs to `DEPLOY_HOST`. Create the OAuth client under Tailscale **Settings → Trust credentials** (not legacy OAuth clients).
 
-GHCR push uses the workflow `GITHUB_TOKEN` (`packages: write`). No extra registry secret is required for publish.
+GHCR push and cleanup use the workflow `GITHUB_TOKEN` (`packages: write`). No extra registry secret is required for publish or for pruning old `sha-*` versions.
 
 The deploy user needs Docker Compose without sudo.
