@@ -1,8 +1,11 @@
 #include "fsm.h"
 #include "goodbye.h"
 #include "base64.h"
+#include "mic_convert.h"
+#include "playback_drain.h"
 
 #include <cassert>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -139,12 +142,57 @@ static void test_rms() {
   std::puts("test_rms OK");
 }
 
+static void test_mic_convert() {
+  // 4 stereo int32 frames @ 16 kHz → expect 6 pcm16 samples @ 24 kHz (4 * 1.5)
+  int32_t frames[8];
+  for (int i = 0; i < 4; i++) {
+    frames[i * 2] = 1000 << 16;
+    frames[i * 2 + 1] = 1000 << 16;
+  }
+  std::vector<int16_t> out;
+  assert(crea_jarvis::logic::convert_voice_pe_mic_chunk(
+      reinterpret_cast<const uint8_t *>(frames), sizeof(frames), &out));
+  assert(out.size() == 6);
+  for (int16_t s : out)
+    assert(std::abs(static_cast<int>(s) - 1000) <= 2);
+
+  // reject odd lengths
+  assert(!crea_jarvis::logic::convert_voice_pe_mic_chunk(
+      reinterpret_cast<const uint8_t *>(frames), 7, &out));
+
+  // loud speech-like energy after convert clears RMS threshold
+  for (int i = 0; i < 4; i++) {
+    frames[i * 2] = 8000 << 16;
+    frames[i * 2 + 1] = 8000 << 16;
+  }
+  assert(crea_jarvis::logic::convert_voice_pe_mic_chunk(
+      reinterpret_cast<const uint8_t *>(frames), sizeof(frames), &out));
+  float rms = crea_jarvis::logic::rms_int16(out.data(), out.size());
+  assert(rms > 500.0f);
+
+  std::puts("test_mic_convert OK");
+}
+
+static void test_playback_drain() {
+  // Inter-chunk gap must NOT finish without response.done
+  assert(!crea_jarvis::logic::playback_drain_ready(false, 1000, 100, 500));
+  // response.done but speaker buffer still playing
+  assert(!crea_jarvis::logic::playback_drain_ready(true, 500, 100, 800, 80));
+  // response.done and past audio_end + grace
+  assert(crea_jarvis::logic::playback_drain_ready(true, 900, 100, 800, 80));
+  // 48KB PCM16 @ 24kHz = 1000ms
+  assert(crea_jarvis::logic::pcm16_mono_duration_ms(48000, 24000) == 1000);
+  std::puts("test_playback_drain OK");
+}
+
 int main() {
   test_fsm_wake_ack_listen_commit();
   test_fsm_wake_cancels_open_session();
   test_goodbye();
   test_base64();
   test_rms();
+  test_mic_convert();
+  test_playback_drain();
   std::puts("ALL PASSED");
   return 0;
 }

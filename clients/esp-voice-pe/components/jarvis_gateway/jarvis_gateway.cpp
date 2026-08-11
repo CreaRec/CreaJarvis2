@@ -1,4 +1,6 @@
 #include "jarvis_gateway.h"
+#include "mic_convert.h"
+#include "playback_drain.h"
 #include "esphome/core/log.h"
 #include "esphome/core/application.h"
 #include "esphome/components/audio/audio.h"
@@ -17,7 +19,8 @@ static constexpr int TARGET_RATE = 24000;
 // Reassemble in PSRAM; leave 1 byte for NUL. Internal fallback is smaller.
 static constexpr size_t kMaxRxPsram = 256 * 1024;
 static constexpr size_t kMaxRxInternal = 48 * 1024;
-static constexpr size_t kMaxPlayQueue = 6;
+// ~2s of PCM16@24kHz if chunks are ~3KB; never drop from front mid-utterance.
+static constexpr size_t kMaxPlayQueue = 64;
 
 void websocket_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id,
                              void *event_data) {
@@ -334,23 +337,12 @@ void JarvisGateway::handle_message_(const char *msg, size_t len) {
   if (json_type_is(msg, len, "response.done")) {
     response_done_pending_ = true;
     fsm_.on_response_done(now);
-    // If nothing queued/playing, treat as drained — but do not skip ACK audio:
-    // response.done can race ahead of fragmented audio.delta frames.
-    if (!playing_ && play_queue_.empty()) {
-      if (fsm_.state == crea_jarvis::logic::State::ACK) {
-        if (!ack_heard_audio_) {
-          ESP_LOGW(TAG, "response.done before ack audio — waiting for deltas");
-          ack_audio_deadline_ms_ = millis() + 4000;
-          return;
-        }
-        fsm_.on_ack_finished(now);
-      } else {
-        fsm_.on_playback_drained(now);
-        if (pending_goodbye_) {
-          pending_goodbye_ = false;
-          fsm_.force_idle();
-        }
-      }
+    // Never leave ACK/SPEAKING on response.done alone — chunked audio.delta
+    // can still be in flight, and speaker/resampler still holds PCM.
+    if (fsm_.state == crea_jarvis::logic::State::ACK && !ack_heard_audio_ &&
+        !playing_ && play_queue_.empty()) {
+      ESP_LOGW(TAG, "response.done before ack audio — waiting for deltas");
+      ack_audio_deadline_ms_ = millis() + 4000;
     }
     return;
   }
@@ -432,6 +424,7 @@ void JarvisGateway::cb_end_session_(void *user) {
   self->ack_heard_audio_ = false;
   self->ack_audio_deadline_ms_ = 0;
   self->response_done_pending_ = false;
+  self->audio_end_ms_ = 0;
   self->pending_goodbye_ = false;
   if (self->speaker_ && self->speaker_->is_running())
     self->speaker_->stop();
@@ -511,20 +504,31 @@ void JarvisGateway::stop_mic_() {
 }
 
 void JarvisGateway::on_mic_data_(const std::vector<uint8_t> &data) {
-  if (data.size() < 2)
+  if (data.size() < 8)
     return;
   if (!fsm_.mic_allowed())
     return;
 
-  const auto *samples = reinterpret_cast<const int16_t *>(data.data());
-  size_t n = data.size() / 2;
-  float rms = crea_jarvis::logic::rms_int16(samples, n);
-  float duration_ms = (static_cast<float>(n) / static_cast<float>(TARGET_RATE)) * 1000.0f;
+  // Voice PE i2s_mics: 32-bit stereo @ 16 kHz → PCM16 mono @ 24 kHz for VAD + Core.
+  std::vector<int16_t> pcm;
+  if (!crea_jarvis::logic::convert_voice_pe_mic_chunk(data.data(), data.size(),
+                                                     &pcm)) {
+    ESP_LOGD(TAG, "mic chunk skip len=%u", static_cast<unsigned>(data.size()));
+    return;
+  }
+
+  float rms = crea_jarvis::logic::rms_int16(pcm.data(), pcm.size());
+  float duration_ms =
+      (static_cast<float>(pcm.size()) /
+       static_cast<float>(crea_jarvis::logic::kGatewayPcmRate)) *
+      1000.0f;
   float now = millis() / 1000.0f;
   fsm_.on_capture_chunk(rms, duration_ms, now);
 
   if (mic_streaming_ && fsm_.stream_to_gateway() && hello_ok_) {
-    std::string b64 = crea_jarvis::logic::base64_encode(data.data(), data.size());
+    const auto *bytes = reinterpret_cast<const uint8_t *>(pcm.data());
+    const size_t nbytes = pcm.size() * sizeof(int16_t);
+    std::string b64 = crea_jarvis::logic::base64_encode(bytes, nbytes);
     std::string json = "{\"type\":\"audio.append\",\"audio\":\"" + b64 + "\"}";
     send_text_(json);
   }
@@ -535,11 +539,31 @@ void JarvisGateway::play_pcm_(const uint8_t *data, size_t len) {
     return;
   // Core sends PCM16 mono @ 24 kHz; Voice PE hardware path is 48 kHz via resampler.
   speaker_->set_audio_stream_info(audio::AudioStreamInfo(16, 1, TARGET_RATE));
-  while (play_queue_.size() >= kMaxPlayQueue) {
-    play_queue_.pop_front();
-    play_offset_ = 0;
+  if (play_queue_.size() >= kMaxPlayQueue) {
+    // Drop newest — cutting the head mid-utterance sounds like garble.
+    ESP_LOGW(TAG, "play queue full (%u) — dropping chunk %u bytes",
+             static_cast<unsigned>(play_queue_.size()),
+             static_cast<unsigned>(len));
+    return;
   }
   play_queue_.emplace_back(data, data + len);
+}
+
+void JarvisGateway::finish_playback_drain_(float now_s) {
+  playing_ = false;
+  audio_end_ms_ = 0;
+  if (speaker_ && speaker_->is_running())
+    speaker_->finish();
+  if (fsm_.state == crea_jarvis::logic::State::ACK) {
+    fsm_.on_ack_finished(now_s);
+  } else {
+    fsm_.on_playback_drained(now_s);
+    if (pending_goodbye_) {
+      pending_goodbye_ = false;
+      fsm_.force_idle();
+    }
+  }
+  response_done_pending_ = false;
 }
 
 void JarvisGateway::set_phase_(LedPhase p) {
@@ -571,8 +595,9 @@ void JarvisGateway::loop() {
   if (ack_audio_deadline_ms_ != 0 && now_ms >= ack_audio_deadline_ms_) {
     ack_audio_deadline_ms_ = 0;
     if (fsm_.state == crea_jarvis::logic::State::ACK && !playing_ &&
-        play_queue_.empty()) {
+        play_queue_.empty() && !ack_heard_audio_) {
       ESP_LOGW(TAG, "ack audio timeout — entering listening");
+      response_done_pending_ = false;
       fsm_.on_ack_finished(now_s);
     }
   }
@@ -589,27 +614,29 @@ void JarvisGateway::loop() {
     size_t remain = chunk.size() - play_offset_;
     size_t written = speaker_->play(chunk.data() + play_offset_, remain);
     play_offset_ += written;
+    if (written > 0) {
+      // Estimate when the speaker path should finish this PCM.
+      const uint32_t dur_ms = crea_jarvis::logic::pcm16_mono_duration_ms(
+          written, TARGET_RATE);
+      if (audio_end_ms_ < now_ms)
+        audio_end_ms_ = now_ms;
+      audio_end_ms_ += dur_ms;
+      last_play_ms_ = now_ms;
+    }
     if (play_offset_ >= chunk.size()) {
       play_queue_.pop_front();
       play_offset_ = 0;
     }
-    last_play_ms_ = now_ms;
   } else if (playing_ && play_queue_.empty()) {
-    // Assume drain complete ~150ms after last write when queue empty
-    if (now_ms - last_play_ms_ > 150) {
-      playing_ = false;
-      if (speaker_ && speaker_->is_running())
-        speaker_->finish();
-      if (fsm_.state == crea_jarvis::logic::State::ACK) {
-        fsm_.on_ack_finished(now_s);
-      } else {
-        fsm_.on_playback_drained(now_s);
-        if (pending_goodbye_) {
-          pending_goodbye_ = false;
-          fsm_.force_idle();
-        }
-      }
-      response_done_pending_ = false;
+    // Do not end on inter-chunk gaps — wait until Core sent response.done and
+    // the estimated speaker buffer has drained.
+    if (crea_jarvis::logic::playback_drain_ready(
+            response_done_pending_, now_ms, last_play_ms_, audio_end_ms_)) {
+      finish_playback_drain_(now_s);
+    } else if (!response_done_pending_ &&
+               now_ms >=
+                   last_play_ms_ + crea_jarvis::logic::kDefaultInterChunkGapMs) {
+      ESP_LOGD(TAG, "playback gap waiting for more audio / response.done");
     }
   }
 }

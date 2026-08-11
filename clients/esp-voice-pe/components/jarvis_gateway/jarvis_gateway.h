@@ -76,6 +76,7 @@ class JarvisGateway : public Component {
   void stop_mic_();
   void on_mic_data_(const std::vector<uint8_t> &data);
   void play_pcm_(const uint8_t *data, size_t len);
+  void finish_playback_drain_(float now_s);
   void set_phase_(LedPhase p);
 
   // FSM callbacks
@@ -119,6 +120,8 @@ class JarvisGateway : public Component {
   bool playing_{false};
   bool response_done_pending_{false};
   uint32_t last_play_ms_{0};
+  /** Estimated millis() when speaker buffer finishes currently written PCM. */
+  uint32_t audio_end_ms_{0};
 
   // PSRAM (preferred) receive reassembly — never grow via throwing std::string::append
   char *rx_buf_{nullptr};
