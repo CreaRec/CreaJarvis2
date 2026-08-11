@@ -31,6 +31,43 @@ function parseIso(iso: string): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+/** Public datetime pair for tool results: UTC ISO + user-local (for speech). */
+function publicDateTimes(
+  start: Date,
+  end: Date,
+  timeZone: string,
+): {
+  start_iso: string;
+  end_iso: string;
+  start_local: string;
+  end_local: string;
+} {
+  return {
+    start_iso: start.toISOString(),
+    end_iso: end.toISOString(),
+    start_local: formatLocal(start, timeZone),
+    end_local: formatLocal(end, timeZone),
+  };
+}
+
+function publicOptionalDateTimes(
+  start: Date | null | undefined,
+  end: Date | null | undefined,
+  timeZone: string,
+): {
+  start_iso: string | null;
+  end_iso: string | null;
+  start_local: string | null;
+  end_local: string | null;
+} {
+  return {
+    start_iso: start ? start.toISOString() : null,
+    end_iso: end ? end.toISOString() : null,
+    start_local: start ? formatLocal(start, timeZone) : null,
+    end_local: end ? formatLocal(end, timeZone) : null,
+  };
+}
+
 function eventDurationMs(reminder: ReminderRecord): number {
   if (reminder.calendarEndAt) {
     const ms = reminder.calendarEndAt.getTime() - reminder.fireAt.getTime();
@@ -253,7 +290,7 @@ export function createCalendarTools(deps: {
     {
       name: "calendar_create_event",
       description:
-        "Create an Apple Calendar event linked to an existing reminder. Always call reminder_create first, then pass its reminder_id. Default duration 30 minutes; default alarms at 1h and 15m before start (override with alarm_minutes_before: [] to clear, [30] for custom, etc.). Location fields default from the reminder (places_search → reminder_create).",
+        "Create an Apple Calendar event linked to an existing reminder. Always call reminder_create first, then pass its reminder_id. Default duration 30 minutes; default alarms at 1h and 15m before start (override with alarm_minutes_before: [] to clear, [30] for custom, etc.). Location fields default from the reminder (places_search → reminder_create). Result includes start_iso/end_iso and start_local/end_local — speak local fields only.",
       parameters: {
         type: "object",
         properties: {
@@ -377,10 +414,7 @@ export function createCalendarTools(deps: {
             event_uid: created.data.uid,
             reminder_id: reminder.id,
             title: parsed.data.title,
-            start: start.toISOString(),
-            end: created.data.end.toISOString(),
-            start_local: formatLocal(start, tz()),
-            end_local: formatLocal(created.data.end, tz()),
+            ...publicDateTimes(start, created.data.end, tz()),
             location: icsLocationFromFields(withLoc) ?? null,
             reminder: toPublic(refreshed ?? linked),
           },
@@ -390,7 +424,7 @@ export function createCalendarTools(deps: {
     {
       name: "calendar_list",
       description:
-        "List Apple Calendar events in a time range. Default: now to +2 days.",
+        "List Apple Calendar events in a time range. Default: now to +2 days. Each event includes start_iso/end_iso (machine) and start_local/end_local (speak these).",
       parameters: {
         type: "object",
         properties: {
@@ -429,17 +463,28 @@ export function createCalendarTools(deps: {
           listed.data.events.map((e) => e.uid),
         );
         const byUid = new Map(links.map((r) => [r.calendarUid!, r.id]));
-        const events = listed.data.events.map((e) => ({
-          ...e,
-          reminder_id: byUid.get(e.uid) ?? null,
-        }));
+        const timeZone = tz();
+        const events = listed.data.events.map((e) => {
+          const start = e.start ? parseIso(e.start) : null;
+          const end = e.end ? parseIso(e.end) : null;
+          return {
+            uid: e.uid,
+            href: e.href,
+            title: e.title,
+            notes: e.notes,
+            location: e.location,
+            geo: e.geo,
+            reminder_id: byUid.get(e.uid) ?? null,
+            ...publicOptionalDateTimes(start, end, timeZone),
+          };
+        });
         return { ok: true, data: { events, count: events.length } };
       },
     },
     {
       name: "calendar_update_event",
       description:
-        "Update an Apple Calendar event by reminder_id or event_uid. Only pass fields you want to change — omitted fields (including duration) are preserved. May also update the linked reminder text/fire_at/location when those fields are set. Omit alarm_minutes_before to keep existing Apple alerts; pass [] to clear, null to restore default 1h+15m, or a custom minute list.",
+        "Update an Apple Calendar event by reminder_id or event_uid. Only pass fields you want to change — omitted fields (including duration) are preserved. May also update the linked reminder text/fire_at/location when those fields are set. Omit alarm_minutes_before to keep existing Apple alerts; pass [] to clear, null to restore default 1h+15m, or a custom minute list. Result includes start_iso/end_iso and start_local/end_local — speak local fields only.",
       parameters: {
         type: "object",
         properties: {
@@ -611,17 +656,15 @@ export function createCalendarTools(deps: {
             ? await deps.store.update(reminder.id, storePatch)
             : reminder;
         const withLoc: ReminderRecord = { ...reminder, ...loc };
+        const resultStart =
+          parsed.data.start !== undefined ? start : reminder.fireAt;
         return {
           ok: true,
           data: {
             event_uid: reminder.calendarUid,
             reminder_id: reminder.id,
             title: parsed.data.title ?? reminder.text,
-            start: (parsed.data.start !== undefined
-              ? start
-              : reminder.fireAt
-            ).toISOString(),
-            end: updated.data.end.toISOString(),
+            ...publicDateTimes(resultStart, updated.data.end, tz()),
             location: icsLocationFromFields(
               locationInputProvided ? withLoc : reminder,
             ) ?? null,

@@ -25,6 +25,10 @@ const reminder: ReminderPublic = {
   calendar_uid: null,
   has_calendar_event: false,
   calendar_end_at_iso: null,
+  calendar_end_at_local: null,
+  location_name: null,
+  location_address: null,
+  location_maps_url: null,
 };
 
 describe("DeviceRegistry", () => {

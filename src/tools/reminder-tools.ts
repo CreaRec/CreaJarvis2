@@ -66,7 +66,7 @@ export function createReminderTools(deps: {
     {
       name: "reminder_create",
       description:
-        "Create a reminder. Resolve relative times with get_current_time first, then pass absolute fire_at ISO-8601. Use for «напомни…», not for long-term memory facts.",
+        "Create a reminder. Resolve relative times with get_current_time first, then pass absolute fire_at ISO-8601. Result includes fire_at_iso and fire_at_local — speak fire_at_local only. Use for «напомни…», not for long-term memory facts.",
       parameters: {
         type: "object",
         properties: {

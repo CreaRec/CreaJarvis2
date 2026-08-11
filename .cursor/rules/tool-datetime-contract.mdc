@@ -1,0 +1,25 @@
+---
+description: Tool datetime responses must expose UTC iso + user-local pairs; speech uses local only
+globs: src/tools/**/*.ts,src/reminders/**/*.ts,src/plans/**/*.ts,src/memory/warm-profile.ts
+alwaysApply: false
+---
+
+# Tool datetime contract
+
+When a tool returns a moment the model may speak or round-trip:
+
+- Always return **both** forms:
+  - `*_iso` (or top-level `iso`) — UTC ISO-8601 (`…Z`) for machine args / storage.
+  - `*_local` (or top-level `local`) — formatted in `USER_TIMEZONE` / reminder `timezone` for speech.
+- Examples: `fire_at_iso` + `fire_at_local`, `start_iso` + `start_local`, `scheduled_at_iso` + `scheduled_at_local`, `calendar_end_at_iso` + `calendar_end_at_local`.
+- Do **not** return only a bare UTC `start`/`end`/`fire_at` string in tool **results**. Input params may still accept ISO (`start`, `fire_at`).
+- Use `formatLocal(date, timeZone)` from `src/utils/time` for local fields.
+- Keep DB storage as UTC instants (`Date` / `TIMESTAMP`); do not store a second local column.
+
+## Model instructions
+
+`buildSessionInstructions` must tell the model: when confirming or listing times, **speak `*_local` / `local` only** — never read `*_iso`, bare ISO/`Z`, or invent offsets.
+
+## Tests
+
+If you add or change datetime fields on a tool result, assert both iso and local are present (and local is not a `Z` timestamp).

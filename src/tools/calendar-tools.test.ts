@@ -145,6 +145,18 @@ describe("createCalendarTools", () => {
       start: "2024-01-16T16:00:00.000Z",
     });
     expect(result.ok).toBe(true);
+    if (result.ok) {
+      const data = result.data as {
+        start_iso: string;
+        end_iso: string;
+        start_local: string;
+        end_local: string;
+      };
+      expect(data.start_iso).toBe("2024-01-16T16:00:00.000Z");
+      expect(data.end_iso).toBe("2024-01-16T16:30:00.000Z");
+      expect(data.start_local).toBeTruthy();
+      expect(data.end_local).toBeTruthy();
+    }
     expect(calendar.createEvent).toHaveBeenCalled();
     expect(store.setCalendarLink).toHaveBeenCalledWith(
       REM_ID,
@@ -285,10 +297,22 @@ describe("createCalendarTools", () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       const data = result.data as {
-        events: Array<{ uid: string; reminder_id: string | null }>;
+        events: Array<{
+          uid: string;
+          reminder_id: string | null;
+          start_iso: string | null;
+          end_iso: string | null;
+          start_local: string | null;
+          end_local: string | null;
+        }>;
       };
       expect(data.events[0]?.reminder_id).toBe(REM_ID);
       expect(data.events[1]?.reminder_id).toBeNull();
+      expect(data.events[0]?.start_iso).toBe("2024-01-16T16:00:00.000Z");
+      expect(data.events[0]?.end_iso).toBe("2024-01-16T16:30:00.000Z");
+      expect(data.events[0]?.start_local).toBeTruthy();
+      expect(data.events[0]?.end_local).toBeTruthy();
+      expect(data.events[0]?.start_local).not.toMatch(/Z$/);
     }
   });
 

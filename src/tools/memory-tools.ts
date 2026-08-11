@@ -168,7 +168,8 @@ export function createMemoryTools(deps: {
     },
     {
       name: "get_current_time",
-      description: "Get the current date and time in ISO-8601 and local string form.",
+      description:
+        "Get the current date and time. Returns iso (UTC, for tool args) and local (user timezone — speak this).",
       parameters: {
         type: "object",
         properties: {

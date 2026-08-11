@@ -84,6 +84,8 @@ export function buildSessionInstructions(
     "Reminders:",
     "Timed «напомни…» requests use reminder_* tools — NOT memory_save.",
     `User timezone: ${tz}. Always call get_current_time before resolving relative times, then pass absolute fire_at ISO to reminder_create/update.`,
+    "Datetimes in tool results: fields ending in `_iso` (or `iso`) are UTC for machine round-trips; fields ending in `_local` (or `local`) are in the user timezone.",
+    "CRITICAL speech: when confirming or listing times, ALWAYS speak `*_local` / `local` — never read `*_iso`, bare ISO/`Z` timestamps, or invent an offset.",
     "Time resolution rules:",
     `- Clock time without date → today; if already past → tomorrow same time.`,
     `- «через N минут/часов» → now + duration.`,
@@ -98,7 +100,7 @@ export function buildSessionInstructions(
     "«Что я просил напомнить?» → reminder_list (default next ~2 days).",
     "Topic search → reminder_search. Cancel/reschedule/snooze → reminder_cancel / reminder_update / reminder_snooze.",
     "If cancel by query matches multiple → ask which one (do not guess).",
-    "After create, confirm briefly with local date/time from the tool result.",
+    "After create, confirm briefly with fire_at_local (or start_local) from the tool result — not fire_at_iso.",
     ...(calendarEnabled
       ? [
           "After reminder_create for a pure «напомни…» request, if offer_calendar is true: confirm the reminder, then ask whether to add it to Apple Calendar. On yes → calendar_create_event with that reminder_id, same title/start (default end = start+30m).",

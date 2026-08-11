@@ -86,6 +86,9 @@ export function toPublic(r: ReminderRecord): ReminderPublic {
     calendar_uid: r.calendarUid,
     has_calendar_event: Boolean(r.calendarUid),
     calendar_end_at_iso: r.calendarEndAt?.toISOString() ?? null,
+    calendar_end_at_local: r.calendarEndAt
+      ? formatLocal(r.calendarEndAt, r.timezone)
+      : null,
     location_name: r.locationName,
     location_address: r.locationAddress,
     location_maps_url: r.locationMapsUrl,

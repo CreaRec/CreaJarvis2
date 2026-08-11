@@ -64,6 +64,7 @@ export interface ReminderPublic {
   calendar_uid: string | null;
   has_calendar_event: boolean;
   calendar_end_at_iso: string | null;
+  calendar_end_at_local: string | null;
   location_name: string | null;
   location_address: string | null;
   location_maps_url: string | null;
