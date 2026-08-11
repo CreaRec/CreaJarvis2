@@ -24,7 +24,7 @@ esphome:
   min_version: 2026.6.0
   project:
     name: crearec.jarvis_voice_pe
-    version: "0.1.10"
+    version: "0.1.11"
 
 packages:
   # Patched upstream (no voice_assistant; center/wake → jarvis_gateway)
@@ -49,6 +49,23 @@ wifi:
 api:
   encryption:
     key: !secret api_encryption_key
+
+# Syslog → LAN bridge on Core host (UDP → OTLP → Loki as crea-jarvis-client)
+time:
+  - platform: sntp
+    id: sntp_time
+
+udp:
+  - id: syslog_udp
+    addresses:
+      - !secret syslog_host
+
+syslog:
+  udp_id: syslog_udp
+  time_id: sntp_time
+  port: 1514
+  level: INFO
+  strip: true
 
 jarvis_gateway:
   id: jarvis

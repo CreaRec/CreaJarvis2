@@ -42,6 +42,23 @@ services:
       - default
       - lgtm
 
+  # ESPHome syslog → OTLP logs (service.name=crea-jarvis-client)
+  esp-syslog-bridge:
+    image: ${BRIDGE_IMAGE:-ghcr.io/crearec/crea-jarvis2-esp-syslog}:${BRIDGE_IMAGE_TAG:-main}
+    restart: unless-stopped
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://alloy:4318}
+      OTEL_SERVICE_NAME: crea-jarvis-client
+      OTEL_SERVICE_NAMESPACE: apps
+      DEPLOY_ENV: ${DEPLOY_ENV:-production}
+      OTEL_SERVICE_VERSION: ${OTEL_SERVICE_VERSION:-}
+      SYSLOG_UDP_PORT: "1514"
+    ports:
+      - "${SYSLOG_UDP_PORT:-1514}:1514/udp"
+    networks:
+      - default
+      - lgtm
+
 networks:
   lgtm:
     external: true

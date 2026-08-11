@@ -25,11 +25,20 @@ cp secrets.yaml.example secrets.yaml
 Edit:
 
 - `jarvis_gateway_url` — deployed Core LAN (this house: `ws://192.168.1.135:8787/voice`)
+- `syslog_host` — same Core LAN IP (UDP syslog → `esp-syslog-bridge` on port 1514)
 - `jarvis_gateway_token` — household token
 - `jarvis_device_id` — stable UUID v4
 - `wifi_*`, `api_encryption_key`, `ota_password`
 
 Never commit `secrets.yaml`.
+
+Firmware also enables ESPHome `syslog` (`INFO`) to that host. After flash, Loki:
+
+```logql
+{service_name="crea-jarvis-client"}
+```
+
+Bridge must be running on the Core host (`docs/docker.md`).
 
 ## Flash
 

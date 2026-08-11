@@ -7,17 +7,20 @@ on:
 
 env:
   IMAGE: ghcr.io/crearec/crea-jarvis2
+  BRIDGE_IMAGE: ghcr.io/crearec/crea-jarvis2-esp-syslog
   DEPLOY_DIR: /home/crearec/crea-jarvis2
 
 jobs:
-  # Server/image paths → publish+deploy. clients/** / docs / workflow-only → tests only.
+  # core / bridge → publish that image. compose → redeploy without mandatory rebuild.
   changes:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: read
     outputs:
-      deploy: ${{ steps.filter.outputs.deploy }}
+      core: ${{ steps.filter.outputs.core }}
+      bridge: ${{ steps.filter.outputs.bridge }}
+      compose: ${{ steps.filter.outputs.compose }}
     steps:
       - uses: actions/checkout@v7
 
@@ -25,18 +28,21 @@ jobs:
         id: filter
         with:
           filters: |
-            deploy:
+            core:
               - 'src/**'
               - 'prisma/**'
               - 'package.json'
               - 'package-lock.json'
               - 'Dockerfile'
-              - 'docker-compose.yml'
               - '.dockerignore'
               - '.npmrc'
               - 'scripts/**'
               - 'tsconfig.json'
               - 'vitest.config.ts'
+            bridge:
+              - 'services/esp-syslog-bridge/**'
+            compose:
+              - 'docker-compose.yml'
 
   test:
     runs-on: ubuntu-latest
@@ -59,6 +65,14 @@ jobs:
 
       - run: npx prisma generate
       - run: npm test
+
+      - name: Bridge install and test
+        working-directory: services/esp-syslog-bridge
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npm ci
+          npm test
 
       # 3.11: openwakeword pulls tflite-runtime on Linux; no cp312 wheels on PyPI.
       - uses: actions/setup-python@v6
@@ -103,10 +117,12 @@ jobs:
         run: ./host_tests/run.sh
 
       - uses: docker/setup-buildx-action@v4
-        if: needs.changes.outputs.deploy == 'true'
+        if: >-
+          needs.changes.outputs.core == 'true'
+          || needs.changes.outputs.bridge == 'true'
 
-      - name: Build image (no push)
-        if: needs.changes.outputs.deploy == 'true'
+      - name: Build core image (no push)
+        if: needs.changes.outputs.core == 'true'
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -117,13 +133,25 @@ jobs:
           secrets: |
             NODE_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }}
 
-  publish:
+      - name: Build bridge image (no push)
+        if: needs.changes.outputs.bridge == 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: services/esp-syslog-bridge
+          push: false
+          tags: ${{ env.BRIDGE_IMAGE }}:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          secrets: |
+            NODE_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }}
+
+  publish_core:
     runs-on: ubuntu-latest
     needs: [test, changes]
     if: >-
       github.event_name == 'push'
       && github.ref == 'refs/heads/main'
-      && needs.changes.outputs.deploy == 'true'
+      && needs.changes.outputs.core == 'true'
     permissions:
       contents: read
       packages: write
@@ -159,13 +187,64 @@ jobs:
           secrets: |
             NODE_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }}
 
-  deploy:
+  publish_bridge:
     runs-on: ubuntu-latest
-    needs: publish
+    needs: [test, changes]
     if: >-
       github.event_name == 'push'
       && github.ref == 'refs/heads/main'
-      && needs.publish.result == 'success'
+      && needs.changes.outputs.bridge == 'true'
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image tags
+        id: meta
+        run: |
+          SHORT_SHA="$(echo "${GITHUB_SHA}" | cut -c1-7)"
+          echo "image_tag=sha-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "tags=${BRIDGE_IMAGE}:main,${BRIDGE_IMAGE}:sha-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: services/esp-syslog-bridge
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          secrets: |
+            NODE_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }}
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [test, changes, publish_core, publish_bridge]
+    if: >-
+      always()
+      && !cancelled()
+      && github.event_name == 'push'
+      && github.ref == 'refs/heads/main'
+      && needs.test.result == 'success'
+      && (
+        needs.changes.outputs.core == 'true'
+        || needs.changes.outputs.bridge == 'true'
+        || needs.changes.outputs.compose == 'true'
+      )
+      && (needs.publish_core.result == 'success' || needs.publish_core.result == 'skipped')
+      && (needs.publish_bridge.result == 'success' || needs.publish_bridge.result == 'skipped')
     steps:
       - uses: actions/checkout@v7
 
@@ -188,7 +267,10 @@ jobs:
         env:
           SSH_USER: ${{ secrets.DEPLOY_USER }}
           SERVER_HOST: ${{ secrets.DEPLOY_HOST }}
-          IMAGE_TAG: ${{ needs.publish.outputs.image_tag }}
+          CORE_IMAGE_TAG: ${{ needs.publish_core.outputs.image_tag }}
+          BRIDGE_IMAGE_TAG_NEW: ${{ needs.publish_bridge.outputs.image_tag }}
+          CORE_CHANGED: ${{ needs.changes.outputs.core }}
+          BRIDGE_CHANGED: ${{ needs.changes.outputs.bridge }}
         run: |
           set -euo pipefail
           SSH_TARGET="${SSH_USER}@${SERVER_HOST}"
@@ -207,10 +289,21 @@ jobs:
             exit 1
           fi
 
-          # Shell IMAGE_TAG overrides .env for compose interpolation; do not mutate secrets.
-          export IMAGE_TAG='${IMAGE_TAG}'
+          # Export tags only for images published in this run; leave others from .env.
+          if [ '${CORE_CHANGED}' = 'true' ] && [ -n '${CORE_IMAGE_TAG}' ]; then
+            export IMAGE_TAG='${CORE_IMAGE_TAG}'
+          fi
+          if [ '${BRIDGE_CHANGED}' = 'true' ] && [ -n '${BRIDGE_IMAGE_TAG_NEW}' ]; then
+            export BRIDGE_IMAGE_TAG='${BRIDGE_IMAGE_TAG_NEW}'
+          fi
+
           docker compose pull
           docker compose up -d
           docker compose ps
-          docker compose logs --tail=30 core
+          if [ '${CORE_CHANGED}' = 'true' ] || [ '${BRIDGE_CHANGED}' != 'true' ]; then
+            docker compose logs --tail=30 core || true
+          fi
+          if [ '${BRIDGE_CHANGED}' = 'true' ] || [ '${CORE_CHANGED}' != 'true' ]; then
+            docker compose logs --tail=30 esp-syslog-bridge || true
+          fi
           EOF
