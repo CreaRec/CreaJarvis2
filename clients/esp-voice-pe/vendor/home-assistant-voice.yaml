@@ -1057,7 +1057,8 @@ event:
       - easter_egg_press
 
 script:
-  # Master script controlling the LEDs, based on different conditions : initialization in progress, wifi and api connected and voice assistant phase.
+  # Master script controlling the LEDs: init, wifi, and Jarvis voice phase.
+  # HA API is not required (Jarvis gateway); do not gate the ring on api_id.
   # For the sake of simplicity and re-usability, the script calls child scripts defined below.
   # This script will be called every time one of these conditions is changing.
   - id: control_leds
@@ -1075,8 +1076,8 @@ script:
             id(control_leds_improv_ble_state).execute();
           } else if (id(init_in_progress)) {
             id(control_leds_init_state).execute();
-          } else if (!id(wifi_id).is_connected() || !id(api_id).is_connected()){
-            id(control_leds_no_ha_connection_state).execute();
+          } else if (!id(wifi_id).is_connected()){
+            id(control_leds_no_wifi_connection_state).execute();
           } else if (id(center_button).state) {
             id(control_leds_center_button_touched).execute();
           } else if (id(jack_plugged_recently)) {
@@ -1157,9 +1158,9 @@ script:
                 id: voice_assistant_leds
                 effect: "none"
 
-  # Script executed when the device has no connection to Home Assistant
-  # Red Twinkle (This will be visible during HA updates for example)
-  - id: control_leds_no_ha_connection_state
+  # Script executed when Wi-Fi is down
+  # Red Twinkle
+  - id: control_leds_no_wifi_connection_state
     then:
       - light.turn_on:
           brightness: 66%

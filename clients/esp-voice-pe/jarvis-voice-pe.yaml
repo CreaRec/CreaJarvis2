@@ -24,7 +24,7 @@ esphome:
   min_version: 2026.6.0
   project:
     name: crearec.jarvis_voice_pe
-    version: "0.1.8"
+    version: "0.1.10"
 
 packages:
   # Patched upstream (no voice_assistant; center/wake → jarvis_gateway)
