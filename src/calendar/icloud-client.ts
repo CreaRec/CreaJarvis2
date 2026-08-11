@@ -7,6 +7,7 @@ import {
   resolveAlarmMinutes,
   type ParsedCalendarEvent,
 } from "./ics.js";
+import { mergeEventDescription } from "./event-description.js";
 
 export type CalendarClientResult<T> =
   | { ok: true; data: T }
@@ -40,6 +41,11 @@ export interface CalendarEventPatch {
   start?: Date;
   end?: Date;
   description?: string;
+  /**
+   * When set (including null), merge into DESCRIPTION: keep existing free-text
+   * notes (unless `description` is also set) and ensure this Maps URL is present.
+   */
+  mapsUrl?: string | null;
   location?: string;
   geo?: { lat: number; lon: number };
   alarmMinutesBefore?: number[];
@@ -112,6 +118,7 @@ function isAlarmsOnlyPatch(patch: CalendarEventPatch): boolean {
     patch.start === undefined &&
     patch.end === undefined &&
     patch.description === undefined &&
+    patch.mapsUrl === undefined &&
     patch.location === undefined &&
     patch.geo === undefined
   );
@@ -296,7 +303,12 @@ export class TsdavICloudCalendarClient implements ICloudCalendarClient {
       const description =
         patch.description !== undefined
           ? patch.description
-          : (existing?.parsed.notes ?? undefined);
+          : patch.mapsUrl !== undefined
+            ? mergeEventDescription({
+                existingDescription: existing?.parsed.notes,
+                mapsUrl: patch.mapsUrl,
+              })
+            : (existing?.parsed.notes ?? undefined);
       const location =
         patch.location !== undefined
           ? patch.location

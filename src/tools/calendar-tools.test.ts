@@ -465,8 +465,55 @@ describe("createCalendarTools", () => {
         start: new Date("2026-08-24T14:00:00.000Z"),
         end: new Date("2026-08-24T14:30:00.000Z"),
         location: "1 Main St",
+        mapsUrl: null,
       }),
     );
+  });
+
+  it("location update with maps URL passes mapsUrl for DESCRIPTION merge", async () => {
+    const linked = makeRecord({
+      calendarUid: "uid-1",
+      calendarHref: "https://x/uid-1.ics",
+      fireAt: new Date("2026-08-24T14:00:00.000Z"),
+      calendarEndAt: new Date("2026-08-24T14:30:00.000Z"),
+    });
+    const store = makeStore({
+      getById: vi.fn().mockResolvedValue(linked),
+      update: vi.fn().mockResolvedValue(linked),
+    });
+    const updateEvent = vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        uid: "uid-1",
+        href: "https://x/uid-1.ics",
+        end: new Date("2026-08-24T14:30:00.000Z"),
+      },
+    });
+    const calendar = makeCalendar({ updateEvent });
+    const gw = new ToolGateway();
+    for (const tool of createCalendarTools({
+      calendar,
+      store,
+      config: makeConfig(),
+    })) {
+      gw.register(tool);
+    }
+    const maps = "https://maps.google.com/?cid=537976887965764502";
+    const result = await gw.execute("calendar_update_event", {
+      reminder_id: REM_ID,
+      location_name: "Clinic",
+      location_address: "1 Main St",
+      location_maps_url: maps,
+    });
+    expect(result.ok).toBe(true);
+    expect(updateEvent).toHaveBeenCalledWith(
+      "https://x/uid-1.ics",
+      expect.objectContaining({
+        location: "1 Main St",
+        mapsUrl: maps,
+      }),
+    );
+    expect(updateEvent.mock.calls[0]![1]).not.toHaveProperty("description");
   });
 
   it("end-only duration update pins start from reminder fireAt", async () => {

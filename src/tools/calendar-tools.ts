@@ -5,6 +5,7 @@ import type {
   CalendarEventPatch,
   ICloudCalendarClient,
 } from "../calendar/icloud-client.js";
+import { assembleEventDescription } from "../calendar/event-description.js";
 import { DEFAULT_ALARM_MINUTES_BEFORE } from "../calendar/ics.js";
 import { formatLocal } from "../utils/time/index.js";
 import { toPublic, type ReminderStore } from "../reminders/store.js";
@@ -46,18 +47,6 @@ export function icsLocationFromFields(opts: {
   if (address) return address;
   const name = opts.locationName?.trim();
   return name || undefined;
-}
-
-export function assembleEventDescription(opts: {
-  notes?: string | null;
-  mapsUrl?: string | null;
-}): string | undefined {
-  const parts: string[] = [];
-  const notes = opts.notes?.trim();
-  if (notes) parts.push(notes);
-  const url = opts.mapsUrl?.trim();
-  if (url) parts.push(url);
-  return parts.length > 0 ? parts.join("\n") : undefined;
 }
 
 export function geoFromFields(opts: {
@@ -570,6 +559,11 @@ export function createCalendarTools(deps: {
           patch.location = icsLocationFromFields(loc);
           const geo = geoFromFields(loc);
           if (geo) patch.geo = geo;
+          // Location-only (no notes): merge Maps URL into existing DESCRIPTION.
+          // When notes were set above, description already includes mapsUrl.
+          if (parsed.data.notes === undefined) {
+            patch.mapsUrl = loc.locationMapsUrl ?? null;
+          }
         }
 
         if (parsed.data.alarm_minutes_before !== undefined) {
