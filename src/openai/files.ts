@@ -2,6 +2,10 @@ import { openaiErrorMessage } from "./errors.js";
 
 export type ChatFetch = typeof fetch;
 
+export function openAiFilePurposeForMime(mimeType: string): "vision" | "user_data" {
+  return mimeType.toLowerCase().startsWith("image/") ? "vision" : "user_data";
+}
+
 export async function uploadOpenAiFile(input: {
   apiKey: string;
   bytes: Buffer;

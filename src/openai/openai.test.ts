@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createChatCompletion } from "./chat.js";
+import { openAiFilePurposeForMime } from "./files.js";
 
 describe("openai http clients", () => {
   it("createChatCompletion maps tools and returns message", async () => {
@@ -43,5 +44,11 @@ describe("openai http clients", () => {
         fetchImpl: fetchImpl as unknown as typeof fetch,
       }),
     ).rejects.toThrow(/rate limit/);
+  });
+
+  it("uses vision purpose for images and user_data for documents", () => {
+    expect(openAiFilePurposeForMime("image/jpeg")).toBe("vision");
+    expect(openAiFilePurposeForMime("IMAGE/PNG")).toBe("vision");
+    expect(openAiFilePurposeForMime("application/pdf")).toBe("user_data");
   });
 });

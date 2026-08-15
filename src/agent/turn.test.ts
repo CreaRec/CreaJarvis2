@@ -175,7 +175,7 @@ describe("runAgentTurn", () => {
     expect(result.text).toBe("да");
   });
 
-  it("attaches OpenAI file ids on the user turn", async () => {
+  it("attaches images as input_image on the user turn", async () => {
     const tools = new ToolGateway();
     const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body ?? "{}")) as {
@@ -183,7 +183,11 @@ describe("runAgentTurn", () => {
       };
       expect(body.input.at(-1)?.content).toEqual([
         { type: "input_text", text: "что на скрине?" },
-        { type: "input_file", file_id: "file_abc" },
+        {
+          type: "input_image",
+          file_id: "file_abc",
+          detail: "auto",
+        },
       ]);
       return responsesText("ошибка 500");
     });
@@ -193,11 +197,47 @@ describe("runAgentTurn", () => {
       model: "gpt-4o",
       instructions: "sys",
       userText: "что на скрине?",
-      attachments: [{ fileId: "file_abc", filename: "a.png" }],
+      attachments: [
+        {
+          fileId: "file_abc",
+          filename: "a.png",
+          mimeType: "image/png",
+        },
+      ],
       tools,
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
     expect(result.text).toBe("ошибка 500");
+  });
+
+  it("attaches documents as input_file", async () => {
+    const tools = new ToolGateway();
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as {
+        input: Array<{ content: unknown }>;
+      };
+      expect(body.input.at(-1)?.content).toEqual([
+        { type: "input_text", text: "прочитай" },
+        { type: "input_file", file_id: "file_pdf" },
+      ]);
+      return responsesText("готово");
+    });
+
+    await runAgentTurn({
+      apiKey: "sk",
+      model: "gpt-4o",
+      instructions: "sys",
+      userText: "прочитай",
+      attachments: [
+        {
+          fileId: "file_pdf",
+          filename: "a.pdf",
+          mimeType: "application/pdf",
+        },
+      ],
+      tools,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
   });
 
   it("throws when max iterations exceeded", async () => {

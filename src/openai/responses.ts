@@ -4,6 +4,11 @@ import type { ChatFetch, ChatHistoryMessage, ChatToolDef } from "./chat.js";
 export type ResponseInputContent =
   | { type: "input_text"; text: string }
   | { type: "input_file"; file_id: string }
+  | {
+      type: "input_image";
+      file_id: string;
+      detail: "auto" | "low" | "high";
+    }
   | { type: "output_text"; text: string };
 
 export type ResponseInputItem =

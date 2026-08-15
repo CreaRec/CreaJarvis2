@@ -1,6 +1,9 @@
 import { z } from "zod";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { runAgentTurn } from "../agent/turn.js";
+import {
+  runAgentTurn,
+  type AgentTurnAttachment,
+} from "../agent/turn.js";
 import type {
   AgentSessionStore,
   SessionMessage,
@@ -11,6 +14,7 @@ import { promoteInboxToArchive } from "../attachments/promote.js";
 import { refreshAttachmentStorageMetrics } from "../attachments/storage-metrics.js";
 import {
   deleteOpenAiFile,
+  openAiFilePurposeForMime,
   uploadOpenAiFile,
 } from "../openai/files.js";
 import { logger, truncateForLog } from "../log.js";
@@ -51,7 +55,7 @@ export interface AgentTurnHttpDeps {
   /** Mutable turn context for attachment tools. */
   turnContext?: {
     userId?: string;
-    pendingInputFiles?: string[];
+    pendingInputFiles?: AgentTurnAttachment[];
   };
 }
 
@@ -141,18 +145,20 @@ export async function handleAgentTurnHttp(
           userText = DEFAULT_ATTACHMENT_PROMPT;
         }
 
-        const attachments: Array<{ fileId: string; filename: string }> = [];
+        const attachments: AgentTurnAttachment[] = [];
         for (const file of inboxFiles) {
           const uploaded = await uploadOpenAiFile({
             apiKey: deps.apiKey,
             bytes: file.bytes,
             filename: file.filename,
             mimeType: file.mimeType,
+            purpose: openAiFilePurposeForMime(file.mimeType),
           });
           uploadedFileIds.push(uploaded.id);
           attachments.push({
             fileId: uploaded.id,
             filename: file.filename,
+            mimeType: file.mimeType,
           });
         }
 
@@ -161,7 +167,7 @@ export async function handleAgentTurnHttp(
             ? `${userText}\n[attachments: ${attachments.map((a) => a.filename).join(", ")}]`
             : userText;
 
-        const pendingInputFiles: string[] = [];
+        const pendingInputFiles: AgentTurnAttachment[] = [];
         if (deps.turnContext) {
           deps.turnContext.userId = userId;
           deps.turnContext.pendingInputFiles = pendingInputFiles;

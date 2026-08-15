@@ -1,11 +1,30 @@
 import { createResponse } from "../openai/responses.js";
-import { uploadOpenAiFile, deleteOpenAiFile } from "../openai/files.js";
+import {
+  uploadOpenAiFile,
+  deleteOpenAiFile,
+  openAiFilePurposeForMime,
+} from "../openai/files.js";
 import type { ChatFetch } from "../openai/chat.js";
 import type { ArchivePromoteResult } from "./types.js";
 import type { AttachmentDbStore } from "./db-store.js";
 import type { AttachmentStore } from "./types.js";
 import { logger } from "../log.js";
 import { classifyError } from "../telemetry.js";
+
+function attachmentInputContent(input: {
+  fileId: string;
+  mimeType: string;
+}):
+  | { type: "input_file"; file_id: string }
+  | {
+      type: "input_image";
+      file_id: string;
+      detail: "auto";
+    } {
+  return input.mimeType.toLowerCase().startsWith("image/")
+    ? { type: "input_image", file_id: input.fileId, detail: "auto" }
+    : { type: "input_file", file_id: input.fileId };
+}
 
 export async function describeAttachment(input: {
   apiKey: string;
@@ -22,6 +41,7 @@ export async function describeAttachment(input: {
       bytes: input.bytes,
       filename: input.filename,
       mimeType: input.mimeType,
+      purpose: openAiFilePurposeForMime(input.mimeType),
       fetchImpl: input.fetchImpl,
     });
     fileId = uploaded.id;
@@ -38,7 +58,10 @@ export async function describeAttachment(input: {
               type: "input_text",
               text: `Filename: ${input.filename} (${input.mimeType})`,
             },
-            { type: "input_file", file_id: uploaded.id },
+            attachmentInputContent({
+              fileId: uploaded.id,
+              mimeType: input.mimeType,
+            }),
           ],
         },
       ],

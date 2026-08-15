@@ -24,6 +24,7 @@ import { classifyError } from "../telemetry.js";
 export interface AgentTurnAttachment {
   fileId: string;
   filename: string;
+  mimeType: string;
 }
 
 export interface AgentTurnResult {
@@ -48,12 +49,24 @@ export interface RunAgentTurnInput {
    * Extra file ids injected mid-loop (e.g. attachment_open).
    * Mutated by tools via turn context when provided.
    */
-  pendingInputFiles?: string[];
+  pendingInputFiles?: AgentTurnAttachment[];
   maxIterations?: number;
   fetchImpl?: ChatFetch;
 }
 
 const DEFAULT_MAX_ITERATIONS = 8;
+
+function attachmentContent(
+  attachment: AgentTurnAttachment,
+): ResponseInputContent {
+  return attachment.mimeType.toLowerCase().startsWith("image/")
+    ? {
+        type: "input_image",
+        file_id: attachment.fileId,
+        detail: "auto",
+      }
+    : { type: "input_file", file_id: attachment.fileId };
+}
 
 export async function runAgentTurn(
   input: RunAgentTurnInput,
@@ -68,7 +81,7 @@ export async function runAgentTurn(
     { type: "input_text", text: input.userText },
   ];
   for (const att of input.attachments ?? []) {
-    userContent.push({ type: "input_file", file_id: att.fileId });
+    userContent.push(attachmentContent(att));
   }
 
   const responseInput: ResponseInputItem[] = [
@@ -83,7 +96,7 @@ export async function runAgentTurn(
     if (pendingInputFiles.length > 0) {
       const extra: ResponseInputContent[] = pendingInputFiles
         .splice(0)
-        .map((fileId) => ({ type: "input_file" as const, file_id: fileId }));
+        .map(attachmentContent);
       responseInput.push({
         role: "user",
         content: [

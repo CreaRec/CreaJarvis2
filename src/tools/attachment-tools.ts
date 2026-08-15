@@ -1,8 +1,12 @@
 import { z } from "zod";
 import type { AttachmentDbStore } from "../attachments/db-store.js";
 import type { AttachmentStore } from "../attachments/types.js";
-import { uploadOpenAiFile } from "../openai/files.js";
+import {
+  openAiFilePurposeForMime,
+  uploadOpenAiFile,
+} from "../openai/files.js";
 import type { ToolGateway } from "./gateway.js";
+import type { AgentTurnAttachment } from "../agent/turn.js";
 
 export function registerAttachmentTools(
   gateway: ToolGateway,
@@ -10,7 +14,7 @@ export function registerAttachmentTools(
     dbStore: AttachmentDbStore;
     fsStore: AttachmentStore;
     apiKey: string;
-    getPendingInputFiles: () => string[] | undefined;
+    getPendingInputFiles: () => AgentTurnAttachment[] | undefined;
     getUserId: () => string | undefined;
   },
 ): void {
@@ -102,8 +106,13 @@ export function registerAttachmentTools(
           bytes,
           filename: row.filename,
           mimeType: row.mimeType,
+          purpose: openAiFilePurposeForMime(row.mimeType),
         });
-        pending.push(uploaded.id);
+        pending.push({
+          fileId: uploaded.id,
+          filename: row.filename,
+          mimeType: row.mimeType,
+        });
         opened.push({
           id: row.id,
           filename: row.filename,

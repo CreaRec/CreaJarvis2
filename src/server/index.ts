@@ -61,6 +61,7 @@ import { AttachmentDbStore } from "../attachments/db-store.js";
 import { startAttachmentStorageMetrics } from "../attachments/storage-metrics.js";
 import type { RedisClientType } from "redis";
 import { mkdir } from "node:fs/promises";
+import type { AgentTurnAttachment } from "../agent/turn.js";
 
 installConsoleCapture(debugLogBuffer);
 
@@ -230,7 +231,7 @@ async function main(): Promise<void> {
   const attachmentDb = new AttachmentDbStore(prisma, embedder);
   const agentTurnContext: {
     userId?: string;
-    pendingInputFiles?: string[];
+    pendingInputFiles?: AgentTurnAttachment[];
   } = {};
   registerAttachmentTools(tools, {
     dbStore: attachmentDb,
