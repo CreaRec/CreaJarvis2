@@ -14,6 +14,8 @@ const envSchema = z.object({
   TTS_VOICE: z.string().default("marin"),
   MAX_VOICE_BYTES: z.coerce.number().int().positive().default(20_971_520),
   MAX_VOICE_DURATION_SEC: z.coerce.number().int().positive().default(120),
+  MAX_ATTACHMENT_BYTES: z.coerce.number().int().positive().default(20_971_520),
+  MEDIA_GROUP_DEBOUNCE_MS: z.coerce.number().int().positive().default(1200),
 });
 
 export type BotConfig = z.infer<typeof envSchema>;

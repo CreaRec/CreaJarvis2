@@ -3,19 +3,38 @@ import { runAgentTurn } from "./turn.js";
 import { ToolGateway } from "../tools/gateway.js";
 import { logger } from "../log.js";
 
+function responsesText(text: string) {
+  return Response.json({
+    id: "resp_1",
+    output_text: text,
+    output: [
+      {
+        type: "message",
+        role: "assistant",
+        content: [{ type: "output_text", text }],
+      },
+    ],
+  });
+}
+
+function responsesToolCall(callId: string, name: string) {
+  return Response.json({
+    id: "resp_tool",
+    output: [
+      {
+        type: "function_call",
+        call_id: callId,
+        name,
+        arguments: "{}",
+      },
+    ],
+  });
+}
+
 describe("runAgentTurn", () => {
   it("returns assistant text without tools", async () => {
     const tools = new ToolGateway();
-    const fetchImpl = vi.fn(async () =>
-      Response.json({
-        choices: [
-          {
-            message: { role: "assistant", content: "Привет" },
-            finish_reason: "stop",
-          },
-        ],
-      }),
-    );
+    const fetchImpl = vi.fn(async () => responsesText("Привет"));
 
     const result = await runAgentTurn({
       apiKey: "sk",
@@ -30,6 +49,11 @@ describe("runAgentTurn", () => {
     expect(result.iterations).toBe(1);
     expect(result.toolTranscript).toEqual([]);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      String((fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1]?.body ?? "{}"),
+    );
+    expect(body.instructions).toBe("sys");
+    expect(body.input.at(-1)).toEqual({ role: "user", content: "hi" });
   });
 
   it("executes tool calls then returns final text", async () => {
@@ -44,36 +68,8 @@ describe("runAgentTurn", () => {
 
     const fetchImpl = vi
       .fn()
-      .mockResolvedValueOnce(
-        Response.json({
-          choices: [
-            {
-              message: {
-                role: "assistant",
-                content: null,
-                tool_calls: [
-                  {
-                    id: "call_1",
-                    type: "function",
-                    function: { name: "ping", arguments: "{}" },
-                  },
-                ],
-              },
-              finish_reason: "tool_calls",
-            },
-          ],
-        }),
-      )
-      .mockResolvedValueOnce(
-        Response.json({
-          choices: [
-            {
-              message: { role: "assistant", content: "pong" },
-              finish_reason: "stop",
-            },
-          ],
-        }),
-      );
+      .mockResolvedValueOnce(responsesToolCall("call_1", "ping"))
+      .mockResolvedValueOnce(responsesText("pong"));
 
     const result = await runAgentTurn({
       apiKey: "sk",
@@ -89,27 +85,24 @@ describe("runAgentTurn", () => {
     expect(result.toolResults).toEqual([
       { name: "ping", result: { ok: true, data: { pong: true, count: 1 } } },
     ]);
-    expect(result.toolTranscript).toEqual([
-      {
-        role: "assistant",
-        content: null,
-        tool_calls: [
-          {
-            id: "call_1",
-            type: "function",
-            function: { name: "ping", arguments: "{}" },
-          },
-        ],
-      },
-      {
-        role: "tool",
-        tool_call_id: "call_1",
-        content: JSON.stringify({
-          ok: true,
-          data: { pong: true, count: 1 },
-        }),
-      },
-    ]);
+    expect(result.toolTranscript[0]).toMatchObject({
+      role: "assistant",
+      tool_calls: [
+        {
+          id: "call_1",
+          type: "function",
+          function: { name: "ping", arguments: "{}" },
+        },
+      ],
+    });
+    expect(result.toolTranscript[1]).toEqual({
+      role: "tool",
+      tool_call_id: "call_1",
+      content: JSON.stringify({
+        ok: true,
+        data: { pong: true, count: 1 },
+      }),
+    });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     expect(infoSpy).toHaveBeenCalledWith(
       "[agent] tool call finished",
@@ -123,42 +116,31 @@ describe("runAgentTurn", () => {
     infoSpy.mockRestore();
   });
 
-  it("includes prior tool transcript between system and current user", async () => {
+  it("includes prior tool transcript in Responses input", async () => {
     const tools = new ToolGateway();
     const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body ?? "{}")) as {
-        messages: Array<{
-          role: string;
-          content: string | null;
-          tool_calls?: unknown[];
-          tool_call_id?: string;
-        }>;
+        instructions?: string;
+        input: Array<Record<string, unknown>>;
       };
-      expect(body.messages.map((m) => m.role)).toEqual([
-        "system",
-        "user",
-        "assistant",
-        "tool",
-        "assistant",
-        "user",
-      ]);
-      expect(body.messages[1]?.content).toBe("что сегодня");
-      expect(body.messages[2]?.tool_calls).toHaveLength(1);
-      expect(body.messages[3]).toEqual({
-        role: "tool",
-        tool_call_id: "call_event",
-        content: '{"ok":true,"data":{"event_id":"event-1"}}',
+      expect(body.instructions).toBe("sys");
+      expect(body.input[0]).toEqual({ role: "user", content: "что сегодня" });
+      expect(body.input[1]).toMatchObject({
+        type: "function_call",
+        call_id: "call_event",
+        name: "schedule_search",
       });
-      expect(body.messages[4]?.content).toBe("Встреча сегодня");
-      expect(body.messages[5]?.content).toBe("отмени её");
-      return Response.json({
-        choices: [
-          {
-            message: { role: "assistant", content: "да" },
-            finish_reason: "stop",
-          },
-        ],
+      expect(body.input[2]).toEqual({
+        type: "function_call_output",
+        call_id: "call_event",
+        output: '{"ok":true,"data":{"event_id":"event-1"}}',
       });
+      expect(body.input[3]).toEqual({
+        role: "assistant",
+        content: "Встреча сегодня",
+      });
+      expect(body.input[4]).toEqual({ role: "user", content: "отмени её" });
+      return responsesText("да");
     });
 
     const result = await runAgentTurn({
@@ -193,6 +175,31 @@ describe("runAgentTurn", () => {
     expect(result.text).toBe("да");
   });
 
+  it("attaches OpenAI file ids on the user turn", async () => {
+    const tools = new ToolGateway();
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as {
+        input: Array<{ content: unknown }>;
+      };
+      expect(body.input.at(-1)?.content).toEqual([
+        { type: "input_text", text: "что на скрине?" },
+        { type: "input_file", file_id: "file_abc" },
+      ]);
+      return responsesText("ошибка 500");
+    });
+
+    const result = await runAgentTurn({
+      apiKey: "sk",
+      model: "gpt-4o",
+      instructions: "sys",
+      userText: "что на скрине?",
+      attachments: [{ fileId: "file_abc", filename: "a.png" }],
+      tools,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(result.text).toBe("ошибка 500");
+  });
+
   it("throws when max iterations exceeded", async () => {
     const tools = new ToolGateway();
     tools.register({
@@ -202,25 +209,7 @@ describe("runAgentTurn", () => {
       handler: async () => ({ ok: true, data: {} }),
     });
 
-    const fetchImpl = vi.fn(async () =>
-      Response.json({
-        choices: [
-          {
-            message: {
-              role: "assistant",
-              content: null,
-              tool_calls: [
-                {
-                  id: "call_x",
-                  type: "function",
-                  function: { name: "loop", arguments: "{}" },
-                },
-              ],
-            },
-          },
-        ],
-      }),
-    );
+    const fetchImpl = vi.fn(async () => responsesToolCall("call_x", "loop"));
 
     await expect(
       runAgentTurn({

@@ -123,9 +123,27 @@ export class TelegramBotService {
       await this.chatHandlers.handleVoice(ctx, userId);
     });
 
+    this.bot.on("photo", async (ctx) => {
+      const userId = ctx.from?.id;
+      if (userId == null) return;
+      await this.chatHandlers.handlePhoto(ctx, userId);
+    });
+
+    this.bot.on("document", async (ctx) => {
+      const userId = ctx.from?.id;
+      if (userId == null) return;
+      await this.chatHandlers.handleDocument(ctx, userId);
+    });
+
     this.bot.on("message", async (ctx) => {
       if (!isPrivateChat(ctx)) return;
-      if ("text" in (ctx.message ?? {}) || "voice" in (ctx.message ?? {})) {
+      const msg = ctx.message ?? {};
+      if (
+        "text" in msg ||
+        "voice" in msg ||
+        "photo" in msg ||
+        "document" in msg
+      ) {
         return;
       }
       await safeReply((t) => ctx.reply(t), BOT_HELP_MESSAGE);

@@ -15,6 +15,8 @@ function makeConfig(): BotConfig {
     TTS_VOICE: "marin",
     MAX_VOICE_BYTES: 1_000_000,
     MAX_VOICE_DURATION_SEC: 120,
+    MAX_ATTACHMENT_BYTES: 1_000_000,
+    MEDIA_GROUP_DEBOUNCE_MS: 50,
   };
 }
 
@@ -65,5 +67,43 @@ describe("ChatHandlers", () => {
       expect.objectContaining({ userId: "7" }),
     );
     expect(ctx.reply).toHaveBeenCalledWith("Контекст сброшен.");
+  });
+
+  it("stages photo without caption via inboxAdd", async () => {
+    const users: UsersStore = {
+      isAllowed: vi.fn(async () => true),
+      getReplyMode: vi.fn(async () => "text" as const),
+      setReplyMode: vi.fn(async (_id, m) => m),
+    };
+    const inboxAdd = vi.fn(async () => ({ count: 1, totalBytes: 10 }));
+    const ctx = {
+      message: {
+        photo: [{ file_id: "p1", width: 10, height: 10, file_size: 10 }],
+      },
+      reply: vi.fn(async () => ({ message_id: 1 })),
+      telegram: {
+        getFileLink: vi.fn(async () => ({ href: "http://file" })),
+      },
+    };
+    const fetchImpl = vi.fn(
+      async () => new Response(Buffer.from("jpegdata"), { status: 200 }),
+    );
+    const handlers = new ChatHandlers({
+      config: makeConfig(),
+      users,
+      inboxAdd,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    await handlers.handlePhoto(ctx as never, 7);
+    expect(inboxAdd).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "7",
+        filename: "photo.jpg",
+        mimeType: "image/jpeg",
+      }),
+    );
+    expect(ctx.reply).toHaveBeenCalledWith(
+      expect.stringContaining("Сохранил (1)"),
+    );
   });
 });

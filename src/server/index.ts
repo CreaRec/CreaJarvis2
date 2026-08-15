@@ -33,19 +33,34 @@ import { createReminderTools } from "../tools/reminder-tools.js";
 import { createScheduleTools } from "../tools/schedule-tools.js";
 import { createSearchTools } from "../tools/search-tools.js";
 import { createThemeTools } from "../tools/theme-tools.js";
+import { registerAttachmentTools } from "../tools/attachment-tools.js";
 import {
   OpenMeteoWeather,
   weatherEnabledFlag,
 } from "../weather/open-meteo.js";
 import { logger } from "../log.js";
-import { startTelemetry, shutdownTelemetry, classifyError } from "../telemetry.js";
+import {
+  startTelemetry,
+  shutdownTelemetry,
+  classifyError,
+  getTelemetry,
+} from "../telemetry.js";
 import { handleAgentSessionClearHttp, handleAgentTurnHttp, readJsonBody } from "./agent-http.js";
+import {
+  handleInboxAddHttp,
+  handleInboxClearHttp,
+  handleInboxStatusHttp,
+} from "./inbox-http.js";
 import { VoiceGateway } from "./voice-gateway.js";
 import {
   connectRedisClient,
   RedisAgentSessionStore,
 } from "../agent/session-store.js";
+import { FsAttachmentStore } from "../attachments/fs-store.js";
+import { AttachmentDbStore } from "../attachments/db-store.js";
+import { startAttachmentStorageMetrics } from "../attachments/storage-metrics.js";
 import type { RedisClientType } from "redis";
+import { mkdir } from "node:fs/promises";
 
 installConsoleCapture(debugLogBuffer);
 
@@ -205,6 +220,61 @@ async function main(): Promise<void> {
     tools.register(tool);
   }
 
+  await mkdir(config.ATTACHMENTS_DIR, { recursive: true });
+  const attachmentStore = new FsAttachmentStore({
+    rootDir: config.ATTACHMENTS_DIR,
+    maxInboxFiles: config.MAX_INBOX_FILES,
+    maxFileBytes: config.MAX_ATTACHMENT_FILE_BYTES,
+    maxInboxTotalBytes: config.MAX_INBOX_TOTAL_BYTES,
+  });
+  const attachmentDb = new AttachmentDbStore(prisma, embedder);
+  const agentTurnContext: {
+    userId?: string;
+    pendingInputFiles?: string[];
+  } = {};
+  registerAttachmentTools(tools, {
+    dbStore: attachmentDb,
+    fsStore: attachmentStore,
+    apiKey: config.OPENAI_API_KEY,
+    getPendingInputFiles: () => agentTurnContext.pendingInputFiles,
+    getUserId: () => agentTurnContext.userId,
+  });
+
+  let stopStorageMetrics: (() => void) | undefined;
+  try {
+    const tel = getTelemetry();
+    stopStorageMetrics = startAttachmentStorageMetrics({
+      store: attachmentStore,
+      intervalMs: config.ATTACHMENT_STORAGE_METRIC_INTERVAL_MS,
+      createObservableGauge: (name, opts) =>
+        (
+          tel.meter as unknown as {
+            createObservableGauge: (
+              n: string,
+              o: { description: string },
+            ) => {
+              addCallback: (
+                cb: (result: {
+                  observe: (
+                    value: number,
+                    attrs?: Record<string, string>,
+                  ) => void;
+                }) => void,
+              ) => void;
+            };
+          }
+        ).createObservableGauge(name, opts),
+    });
+  } catch (err) {
+    logger.exception("[core] attachment metrics init failed", err, {
+      component: "core",
+      handler: "http",
+      step: "storage_metric",
+      result: "error",
+      error_type: classifyError(err),
+    });
+  }
+
   const weather = new OpenMeteoWeather({
     enabled: weatherEnabledFlag(config.JARVIS_WEATHER),
     lat: config.JARVIS_WEATHER_LAT,
@@ -266,6 +336,18 @@ async function main(): Promise<void> {
     extractBearer,
     readJsonBody,
     sessionStore,
+    attachmentStore,
+    attachmentDb,
+    turnContext: agentTurnContext,
+  };
+
+  const inboxHttpDeps = {
+    store: attachmentStore,
+    tokensEqual,
+    gatewayToken: config.JARVIS_GATEWAY_TOKEN,
+    extractBearer,
+    readJsonBody,
+    maxFileBytes: config.MAX_ATTACHMENT_FILE_BYTES,
   };
 
   const server = createServer((req, res) => {
@@ -294,6 +376,25 @@ async function main(): Promise<void> {
 
     if (url === "/internal/agent/session/clear" && req.method === "POST") {
       void handleAgentSessionClearHttp(req, res, agentHttpDeps);
+      return;
+    }
+
+    if (url === "/internal/inbox/add" && req.method === "POST") {
+      void handleInboxAddHttp(req, res, inboxHttpDeps);
+      return;
+    }
+
+    if (
+      (url === "/internal/inbox/status" ||
+        url.startsWith("/internal/inbox/status?")) &&
+      req.method === "GET"
+    ) {
+      void handleInboxStatusHttp(req, res, inboxHttpDeps);
+      return;
+    }
+
+    if (url === "/internal/inbox/clear" && req.method === "POST") {
+      void handleInboxClearHttp(req, res, inboxHttpDeps);
       return;
     }
 
@@ -462,6 +563,7 @@ async function main(): Promise<void> {
       step: "finish",
     });
     poller.stop();
+    stopStorageMetrics?.();
     server.close();
     if (redisClient) {
       await redisClient.quit().catch(() => undefined);

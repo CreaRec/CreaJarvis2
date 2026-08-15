@@ -28,8 +28,26 @@ const envSchema = z.object({
   EMBEDDING_MODEL: z.string().default("text-embedding-3-small"),
   EMBEDDING_DIMENSIONS: z.coerce.number().default(1536),
   REALTIME_MODEL: z.string().default("gpt-realtime-2.1"),
-  /** Chat Completions model for /internal/agent/turn (Telegram proxy, etc.). */
+  /** Chat Completions / Responses model for /internal/agent/turn (Telegram proxy, etc.). */
   AGENT_CHAT_MODEL: z.string().default("gpt-4o"),
+  /** Local attachment inbox/archive root (Core volume). */
+  ATTACHMENTS_DIR: z.string().default("/data/attachments"),
+  MAX_INBOX_FILES: z.coerce.number().int().positive().default(10),
+  MAX_ATTACHMENT_FILE_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(20_971_520),
+  MAX_INBOX_TOTAL_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(52_428_800),
+  ATTACHMENT_STORAGE_METRIC_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(60_000),
   VOICE: z.string().default("marin"),
   VOICE_GATEWAY_URL: z.string().default("ws://127.0.0.1:8787/voice"),
   JARVIS_GATEWAY_TOKEN: z.string().min(8),

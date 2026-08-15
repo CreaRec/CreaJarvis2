@@ -242,3 +242,21 @@ model Device {
   @@index([archived, lastSeenAt])
   @@map("devices")
 }
+
+model Attachment {
+  id          String   @id @db.Uuid
+  userId      String
+  storagePath String
+  filename    String
+  mimeType    String
+  sizeBytes   Int
+  sha256      String
+  description String   @default("")
+  embedding   Unsupported("vector(1536)")?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([userId, sha256])
+  @@index([userId, createdAt])
+  @@map("attachments")
+}

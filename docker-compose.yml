@@ -54,6 +54,8 @@ services:
       DEPLOY_ENV: ${DEPLOY_ENV:-production}
     ports:
       - "8787:8787"
+    volumes:
+      - ./data/attachments:/data/attachments
     networks:
       - default
       - lgtm

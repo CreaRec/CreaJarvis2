@@ -5,6 +5,14 @@ import type {
   AgentSessionStore,
   SessionMessage,
 } from "../agent/session-store.js";
+import type { AttachmentStore } from "../attachments/types.js";
+import type { AttachmentDbStore } from "../attachments/db-store.js";
+import { promoteInboxToArchive } from "../attachments/promote.js";
+import { refreshAttachmentStorageMetrics } from "../attachments/storage-metrics.js";
+import {
+  deleteOpenAiFile,
+  uploadOpenAiFile,
+} from "../openai/files.js";
 import { logger, truncateForLog } from "../log.js";
 import type { ToolGateway } from "../tools/gateway.js";
 import {
@@ -16,9 +24,10 @@ import {
 
 const MAX_TEXT_CHARS = 8_000;
 const MAX_USER_ID_CHARS = 64;
+const DEFAULT_ATTACHMENT_PROMPT = "Что с этими вложениями?";
 
 const turnBodySchema = z.object({
-  text: z.string().trim().min(1).max(MAX_TEXT_CHARS),
+  text: z.string().trim().max(MAX_TEXT_CHARS).optional(),
   userId: z.string().trim().min(1).max(MAX_USER_ID_CHARS).optional(),
 });
 
@@ -37,6 +46,13 @@ export interface AgentTurnHttpDeps {
   readJsonBody: (req: IncomingMessage) => Promise<unknown>;
   sessionStore?: AgentSessionStore;
   runTurn?: typeof runAgentTurn;
+  attachmentStore?: AttachmentStore;
+  attachmentDb?: AttachmentDbStore;
+  /** Mutable turn context for attachment tools. */
+  turnContext?: {
+    userId?: string;
+    pendingInputFiles?: string[];
+  };
 }
 
 function json(res: ServerResponse, status: number, body: unknown): void {
@@ -77,14 +93,15 @@ export async function handleAgentTurnHttp(
 
   const parsed = turnBodySchema.safeParse(raw);
   if (!parsed.success) {
-    json(res, 400, { ok: false, error: "Invalid body: text required" });
+    json(res, 400, { ok: false, error: "Invalid body" });
     return;
   }
 
-  const userText = parsed.data.text;
   const userId = parsed.data.userId;
+  let userText = (parsed.data.text ?? "").trim();
   const started = Date.now();
   let result: "success" | "error" = "success";
+  const uploadedFileIds: string[] = [];
 
   try {
     const text = await withVoiceSessionSpan(
@@ -108,6 +125,48 @@ export async function handleAgentTurnHttp(
           });
         }
 
+        let inboxFiles: Array<{
+          filename: string;
+          mimeType: string;
+          bytes: Buffer;
+        }> = [];
+        if (userId && deps.attachmentStore) {
+          inboxFiles = await deps.attachmentStore.readAll(userId);
+        }
+
+        if (!userText && inboxFiles.length === 0) {
+          throw new Error("text required when inbox is empty");
+        }
+        if (!userText && inboxFiles.length > 0) {
+          userText = DEFAULT_ATTACHMENT_PROMPT;
+        }
+
+        const attachments: Array<{ fileId: string; filename: string }> = [];
+        for (const file of inboxFiles) {
+          const uploaded = await uploadOpenAiFile({
+            apiKey: deps.apiKey,
+            bytes: file.bytes,
+            filename: file.filename,
+            mimeType: file.mimeType,
+          });
+          uploadedFileIds.push(uploaded.id);
+          attachments.push({
+            fileId: uploaded.id,
+            filename: file.filename,
+          });
+        }
+
+        const sessionUserText =
+          attachments.length > 0
+            ? `${userText}\n[attachments: ${attachments.map((a) => a.filename).join(", ")}]`
+            : userText;
+
+        const pendingInputFiles: string[] = [];
+        if (deps.turnContext) {
+          deps.turnContext.userId = userId;
+          deps.turnContext.pendingInputFiles = pendingInputFiles;
+        }
+
         const instructions = await deps.getInstructions();
         const turn = await (deps.runTurn ?? runAgentTurn)({
           apiKey: deps.apiKey,
@@ -116,13 +175,32 @@ export async function handleAgentTurnHttp(
           userText,
           priorMessages,
           tools: deps.tools,
+          attachments: attachments.length > 0 ? attachments : undefined,
+          pendingInputFiles,
         });
+
+        if (
+          userId &&
+          deps.attachmentStore &&
+          deps.attachmentDb &&
+          inboxFiles.length > 0
+        ) {
+          await promoteInboxToArchive({
+            userId,
+            fsStore: deps.attachmentStore,
+            dbStore: deps.attachmentDb,
+            apiKey: deps.apiKey,
+            model: deps.model,
+            inboxFiles,
+          });
+          await refreshAttachmentStorageMetrics(deps.attachmentStore);
+        }
 
         if (userId && deps.sessionStore) {
           const saveStarted = Date.now();
           await deps.sessionStore.appendTurn(
             userId,
-            userText,
+            sessionUserText,
             turn.text,
             turn.toolTranscript,
           );
@@ -135,6 +213,7 @@ export async function handleAgentTurnHttp(
             tool_message_count: turn.toolTranscript.filter(
               (message) => message.role === "tool",
             ).length,
+            attachment_count: attachments.length,
           });
         }
 
@@ -149,12 +228,15 @@ export async function handleAgentTurnHttp(
       result: "success",
       duration_ms: Date.now() - started,
       user_text: truncateForLog(userText),
+      attachment_count: uploadedFileIds.length,
     });
     json(res, 200, { ok: true, text });
   } catch (err) {
     result = "error";
     const errorType = classifyError(err);
     recordVoiceError({ errorType, handler: "http" });
+    const message = err instanceof Error ? err.message : String(err);
+    const status = /text required/i.test(message) ? 400 : 500;
     logger.exception("[http] agent turn failed", err, {
       component: "core",
       handler: "http",
@@ -163,11 +245,17 @@ export async function handleAgentTurnHttp(
       error_type: errorType,
       user_text: truncateForLog(userText),
     });
-    json(res, 500, {
-      ok: false,
-      error: err instanceof Error ? err.message : String(err),
-    });
+    json(res, status, { ok: false, error: message });
   } finally {
+    for (const fileId of uploadedFileIds) {
+      await deleteOpenAiFile({ apiKey: deps.apiKey, fileId }).catch(
+        () => undefined,
+      );
+    }
+    if (deps.turnContext) {
+      deps.turnContext.userId = undefined;
+      deps.turnContext.pendingInputFiles = undefined;
+    }
     recordHandledSession({
       result,
       durationSeconds: (Date.now() - started) / 1000,
@@ -205,6 +293,10 @@ export async function handleAgentSessionClearHttp(
   const started = Date.now();
   try {
     await deps.sessionStore.clear(parsed.data.userId);
+    if (deps.attachmentStore) {
+      await deps.attachmentStore.clearPending(parsed.data.userId);
+      await refreshAttachmentStorageMetrics(deps.attachmentStore);
+    }
     logger.info("[http] session clear", {
       component: "core",
       handler: "http",

@@ -19,6 +19,11 @@ describe("docker deploy contract", () => {
     expect(compose).toMatch(/OTEL_SERVICE_NAMESPACE:.*apps/);
   });
 
+  it("docker-compose mounts attachments volume on core", async () => {
+    const compose = await readFile(path.join(repoRoot, "docker-compose.yml"), "utf8");
+    expect(compose).toMatch(/data\/attachments:\/data\/attachments/);
+  });
+
   it("docker-compose includes telegram-bot sidecar image", async () => {
     const compose = await readFile(path.join(repoRoot, "docker-compose.yml"), "utf8");
     expect(compose).toMatch(/telegram-bot:/);

@@ -41,6 +41,11 @@ function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     ICLOUD_CALDAV_PASSWORD: "",
     ICLOUD_CALDAV_CALENDAR_URL: "",
     AGENT_CHAT_MODEL: "gpt-4o",
+    ATTACHMENTS_DIR: "/tmp/jarvis-attachments",
+    MAX_INBOX_FILES: 10,
+    MAX_ATTACHMENT_FILE_BYTES: 20_971_520,
+    MAX_INBOX_TOTAL_BYTES: 52_428_800,
+    ATTACHMENT_STORAGE_METRIC_INTERVAL_MS: 60_000,
     ...overrides,
   };
 }
