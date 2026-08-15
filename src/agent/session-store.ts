@@ -29,6 +29,9 @@ export interface RedisCommands {
   del(key: string): Promise<number>;
 }
 
+/** 0 = no idle expiry (clear only via AgentSessionStore.clear). */
+export type SessionTtlSeconds = number;
+
 const KEY_PREFIX = "agent:session:";
 
 export function sessionKey(userId: string): string {
@@ -121,12 +124,12 @@ function trimMessages(
 export class MemoryAgentSessionStore implements AgentSessionStore {
   private readonly sessions = new Map<
     string,
-    { messages: SessionMessage[]; expiresAt: number }
+    { messages: SessionMessage[]; expiresAt: number | null }
   >();
 
   constructor(
     private readonly opts: {
-      ttlSeconds: number;
+      ttlSeconds: SessionTtlSeconds;
       maxMessages: number;
       now?: () => number;
     },
@@ -136,12 +139,17 @@ export class MemoryAgentSessionStore implements AgentSessionStore {
     return this.opts.now?.() ?? Date.now();
   }
 
+  private expiresAtFromNow(): number | null {
+    if (this.opts.ttlSeconds <= 0) return null;
+    return this.now() + this.opts.ttlSeconds * 1000;
+  }
+
   async getMessages(userId: string): Promise<SessionMessage[]> {
     const id = sanitizeUserId(userId);
     if (!id) return [];
     const entry = this.sessions.get(id);
     if (!entry) return [];
-    if (entry.expiresAt <= this.now()) {
+    if (entry.expiresAt !== null && entry.expiresAt <= this.now()) {
       this.sessions.delete(id);
       return [];
     }
@@ -168,7 +176,7 @@ export class MemoryAgentSessionStore implements AgentSessionStore {
     );
     this.sessions.set(id, {
       messages,
-      expiresAt: this.now() + this.opts.ttlSeconds * 1000,
+      expiresAt: this.expiresAtFromNow(),
     });
   }
 
@@ -182,7 +190,10 @@ export class MemoryAgentSessionStore implements AgentSessionStore {
 export class RedisAgentSessionStore implements AgentSessionStore {
   constructor(
     private readonly redis: RedisCommands,
-    private readonly opts: { ttlSeconds: number; maxMessages: number },
+    private readonly opts: {
+      ttlSeconds: SessionTtlSeconds;
+      maxMessages: number;
+    },
   ) {}
 
   async getMessages(userId: string): Promise<SessionMessage[]> {
@@ -222,9 +233,13 @@ export class RedisAgentSessionStore implements AgentSessionStore {
         ],
         this.opts.maxMessages,
       );
-      await this.redis.set(sessionKey(id), JSON.stringify(messages), {
-        EX: this.opts.ttlSeconds,
-      });
+      const payload = JSON.stringify(messages);
+      const key = sessionKey(id);
+      if (this.opts.ttlSeconds > 0) {
+        await this.redis.set(key, payload, { EX: this.opts.ttlSeconds });
+      } else {
+        await this.redis.set(key, payload);
+      }
     } catch (err) {
       logger.exception("[agent] session save failed", err, {
         component: "agent",

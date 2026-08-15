@@ -9,7 +9,7 @@ import {
 describe("MemoryAgentSessionStore", () => {
   it("appends turns, trims to max, and clears", async () => {
     const store = new MemoryAgentSessionStore({
-      ttlSeconds: 1800,
+      ttlSeconds: 0,
       maxMessages: 4,
     });
     await store.appendTurn("u1", "a", "A");
@@ -26,7 +26,7 @@ describe("MemoryAgentSessionStore", () => {
     expect(await store.getMessages("u1")).toEqual([]);
   });
 
-  it("expires idle sessions via clock", async () => {
+  it("expires idle sessions via clock when ttl > 0", async () => {
     let now = 1_000_000;
     const store = new MemoryAgentSessionStore({
       ttlSeconds: 10,
@@ -39,9 +39,24 @@ describe("MemoryAgentSessionStore", () => {
     expect(await store.getMessages("u1")).toEqual([]);
   });
 
+  it("does not expire when ttl is 0", async () => {
+    let now = 1_000_000;
+    const store = new MemoryAgentSessionStore({
+      ttlSeconds: 0,
+      maxMessages: 10,
+      now: () => now,
+    });
+    await store.appendTurn("u1", "hi", "hello");
+    now += 86_400_000;
+    expect(await store.getMessages("u1")).toEqual([
+      { role: "user", content: "hi" },
+      { role: "assistant", content: "hello" },
+    ]);
+  });
+
   it("persists tool results and trims whole turns", async () => {
     const store = new MemoryAgentSessionStore({
-      ttlSeconds: 1800,
+      ttlSeconds: 0,
       maxMessages: 2,
     });
     await store.appendTurn("u1", "old", "old answer");
@@ -88,7 +103,7 @@ describe("MemoryAgentSessionStore", () => {
 });
 
 describe("RedisAgentSessionStore", () => {
-  it("loads, appends with EX, and clears", async () => {
+  it("loads, appends without EX when ttl is 0, and clears", async () => {
     const data = new Map<string, string>();
     const redis: RedisCommands = {
       get: vi.fn(async (key) => data.get(key) ?? null),
@@ -102,8 +117,8 @@ describe("RedisAgentSessionStore", () => {
       }),
     };
     const store = new RedisAgentSessionStore(redis, {
-      ttlSeconds: 1800,
-      maxMessages: 12,
+      ttlSeconds: 0,
+      maxMessages: 10,
     });
 
     expect(await store.getMessages("42")).toEqual([]);
@@ -114,7 +129,6 @@ describe("RedisAgentSessionStore", () => {
         { role: "user", content: "привет" },
         { role: "assistant", content: "ответ" },
       ]),
-      { EX: 1800 },
     );
     expect(await store.getMessages("42")).toEqual([
       { role: "user", content: "привет" },
@@ -123,6 +137,27 @@ describe("RedisAgentSessionStore", () => {
     await store.clear("42");
     expect(redis.del).toHaveBeenCalledWith(sessionKey("42"));
     expect(await store.getMessages("42")).toEqual([]);
+  });
+
+  it("sets EX when ttl > 0", async () => {
+    const redis: RedisCommands = {
+      get: vi.fn(async () => null),
+      set: vi.fn(async () => "OK"),
+      del: vi.fn(async () => 0),
+    };
+    const store = new RedisAgentSessionStore(redis, {
+      ttlSeconds: 1800,
+      maxMessages: 10,
+    });
+    await store.appendTurn("42", "привет", "ответ");
+    expect(redis.set).toHaveBeenCalledWith(
+      sessionKey("42"),
+      JSON.stringify([
+        { role: "user", content: "привет" },
+        { role: "assistant", content: "ответ" },
+      ]),
+      { EX: 1800 },
+    );
   });
 
   it("returns empty on get failure (fail-soft)", async () => {
@@ -134,7 +169,7 @@ describe("RedisAgentSessionStore", () => {
       del: vi.fn(async () => 0),
     };
     const store = new RedisAgentSessionStore(redis, {
-      ttlSeconds: 60,
+      ttlSeconds: 0,
       maxMessages: 4,
     });
     expect(await store.getMessages("1")).toEqual([]);

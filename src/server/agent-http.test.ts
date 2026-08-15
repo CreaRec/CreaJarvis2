@@ -68,8 +68,8 @@ describe("handleAgentTurnHttp", () => {
 
   it("loads prior history and saves turn when userId present", async () => {
     const store = new MemoryAgentSessionStore({
-      ttlSeconds: 1800,
-      maxMessages: 12,
+      ttlSeconds: 0,
+      maxMessages: 10,
     });
     await store.appendTurn("42", "раньше", "ок");
     const res = mockRes();
@@ -141,8 +141,8 @@ describe("handleAgentTurnHttp", () => {
 
   it("works without userId (no session)", async () => {
     const store = new MemoryAgentSessionStore({
-      ttlSeconds: 1800,
-      maxMessages: 12,
+      ttlSeconds: 0,
+      maxMessages: 10,
     });
     const res = mockRes();
     await handleAgentTurnHttp(mockReq({ text: "hi" }, "Bearer secret-token"), res, {
@@ -176,8 +176,8 @@ describe("handleAgentTurnHttp", () => {
 describe("handleAgentSessionClearHttp", () => {
   it("clears session for userId", async () => {
     const store = new MemoryAgentSessionStore({
-      ttlSeconds: 1800,
-      maxMessages: 12,
+      ttlSeconds: 0,
+      maxMessages: 10,
     });
     await store.appendTurn("7", "a", "b");
     const res = mockRes();
