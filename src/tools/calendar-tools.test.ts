@@ -54,6 +54,7 @@ function makeEvent(overrides: Partial<EventRecord> = {}): EventRecord {
   return {
     id: EVENT_ID,
     uid: "uid-1",
+    recurrenceId: "",
     href: "https://caldav.example/uid-1.ics",
     title: "dentist",
     startAt: new Date("2024-01-16T16:00:00.000Z"),
@@ -61,6 +62,10 @@ function makeEvent(overrides: Partial<EventRecord> = {}): EventRecord {
     timezone: "America/Chicago",
     notes: null,
     alarmMinutesBefore: [60, 15],
+    recurrenceRule: null,
+    isAllDay: false,
+    sourceUpdatedAt: null,
+    lastSeenSyncId: null,
     locationName: null,
     locationAddress: null,
     locationMapsUrl: null,
@@ -78,6 +83,7 @@ function makeCalendar(
   return {
     createEvent: vi.fn(),
     listEvents: vi.fn(),
+    fetchAllEvents: vi.fn(),
     updateEvent: vi.fn(),
     deleteEvent: vi.fn(),
     ...overrides,
@@ -89,10 +95,12 @@ function makeStore(overrides: Partial<EventStore> = {}): EventStore {
     create: vi.fn(),
     getById: vi.fn(),
     getByUid: vi.fn(),
+    listByUid: vi.fn(),
     getByUids: vi.fn().mockResolvedValue([]),
     update: vi.fn(),
     delete: vi.fn(),
     list: vi.fn(),
+    reconcileFromApple: vi.fn(),
     ...overrides,
   } as unknown as EventStore;
 }
@@ -286,7 +294,7 @@ describe("createCalendarTools", () => {
       endAt: new Date("2024-01-16T17:30:00.000Z"),
     });
     const store = makeStore({
-      getByUid: vi.fn().mockResolvedValue(event),
+      listByUid: vi.fn().mockResolvedValue([event]),
       update: vi.fn().mockResolvedValue(updated),
     });
     const calendar = makeCalendar({
@@ -314,6 +322,106 @@ describe("createCalendarTools", () => {
         endAt: new Date("2024-01-16T17:30:00.000Z"),
       }),
     );
+  });
+
+  it("rejects ambiguous event_uid for recurring series", async () => {
+    const store = makeStore({
+      listByUid: vi.fn().mockResolvedValue([
+        makeEvent(),
+        makeEvent({
+          id: "00000000-0000-4000-8000-0000000000bb",
+          recurrenceId: "20240116T160000Z",
+        }),
+      ]),
+    });
+    const gw = gatewayWith(makeCalendar(), store);
+    const result = await gw.execute("calendar_update_event", {
+      event_uid: "uid-1",
+      title: "x",
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/event_id/i);
+  });
+
+  it("rejects update of recurring events", async () => {
+    const store = makeStore({
+      getById: vi.fn().mockResolvedValue(
+        makeEvent({ recurrenceRule: "FREQ=WEEKLY" }),
+      ),
+    });
+    const gw = gatewayWith(makeCalendar(), store);
+    const result = await gw.execute("calendar_update_event", {
+      event_id: EVENT_ID,
+      title: "x",
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/recurring/i);
+  });
+
+  it("runs calendar_sync via tool", async () => {
+    const store = makeStore({
+      reconcileFromApple: vi.fn().mockResolvedValue({
+        created: 2,
+        updated: 1,
+        unchanged: 3,
+        deleted: 0,
+      }),
+    });
+    const calendar = makeCalendar({
+      fetchAllEvents: vi.fn().mockResolvedValue({
+        ok: true,
+        data: {
+          complete: true,
+          events: [
+            {
+              uid: "a",
+              href: "https://x/a.ics",
+              title: "A",
+              start: "2024-01-16T16:00:00.000Z",
+              end: "2024-01-16T16:30:00.000Z",
+              notes: null,
+              location: null,
+              geo: null,
+              recurrenceId: "",
+              recurrenceRule: null,
+              isAllDay: false,
+              cancelled: false,
+              sourceUpdatedAt: null,
+              alarmMinutesBefore: [],
+              timeZone: "America/Chicago",
+            },
+            {
+              uid: "b",
+              href: "https://x/b.ics",
+              title: "B",
+              start: "2024-01-17T16:00:00.000Z",
+              end: "2024-01-17T17:00:00.000Z",
+              notes: null,
+              location: null,
+              geo: null,
+              recurrenceId: "",
+              recurrenceRule: null,
+              isAllDay: false,
+              cancelled: false,
+              sourceUpdatedAt: null,
+              alarmMinutesBefore: [],
+              timeZone: "America/Chicago",
+            },
+          ],
+        },
+      }),
+    });
+    const gw = gatewayWith(calendar, store);
+    const result = await gw.execute("calendar_sync", {});
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data).toMatchObject({
+        created: 2,
+        updated: 1,
+        unchanged: 3,
+        deleted: 0,
+      });
+    }
   });
 
   it("deletes CalDAV then EventStore row", async () => {

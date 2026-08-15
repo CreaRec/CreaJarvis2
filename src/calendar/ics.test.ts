@@ -7,7 +7,9 @@ import {
   formatAlarmTrigger,
   formatIcsLocalDateTime,
   parseAlarmTriggerMinutes,
+  parseAllVEvents,
   parseFirstVEvent,
+  parseIcsDateOnly,
   replaceValarmsInIcs,
   resolveAlarmMinutes,
 } from "./ics.js";
@@ -330,5 +332,71 @@ describe("replaceValarmsInIcs", () => {
     const next = replaceValarmsInIcs(ics, []);
     expect(next).not.toContain("BEGIN:VALARM");
     expect(next).toContain("END:VEVENT");
+  });
+});
+
+describe("parseAllVEvents / all-day / recurrence", () => {
+  it("parses VALUE=DATE all-day events as exclusive end", () => {
+    const ics = [
+      "BEGIN:VCALENDAR",
+      "BEGIN:VEVENT",
+      "UID:allday-1",
+      "DTSTART;VALUE=DATE:20240601",
+      "DTEND;VALUE=DATE:20240602",
+      "SUMMARY:Holiday",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+    const events = parseAllVEvents(ics);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.isAllDay).toBe(true);
+    expect(events[0]?.start?.toISOString()).toBe(
+      parseIcsDateOnly("20240601")?.toISOString(),
+    );
+    expect(events[0]?.end?.toISOString()).toBe(
+      parseIcsDateOnly("20240602")?.toISOString(),
+    );
+  });
+
+  it("parses RRULE master and RECURRENCE-ID exception", () => {
+    const ics = [
+      "BEGIN:VCALENDAR",
+      "BEGIN:VEVENT",
+      "UID:series-1",
+      "DTSTART;TZID=America/Chicago:20240601T100000",
+      "DTEND;TZID=America/Chicago:20240601T110000",
+      "RRULE:FREQ=WEEKLY;COUNT=4",
+      "SUMMARY:Standup",
+      "END:VEVENT",
+      "BEGIN:VEVENT",
+      "UID:series-1",
+      "RECURRENCE-ID;TZID=America/Chicago:20240608T100000",
+      "DTSTART;TZID=America/Chicago:20240608T110000",
+      "DTEND;TZID=America/Chicago:20240608T120000",
+      "SUMMARY:Standup moved",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+    const events = parseAllVEvents(ics);
+    expect(events).toHaveLength(2);
+    expect(events[0]?.recurrenceRule).toBe("FREQ=WEEKLY;COUNT=4");
+    expect(events[0]?.recurrenceId).toBe("");
+    expect(events[1]?.recurrenceId.length).toBeGreaterThan(0);
+    expect(events[1]?.title).toBe("Standup moved");
+  });
+
+  it("marks STATUS:CANCELLED", () => {
+    const ics = [
+      "BEGIN:VCALENDAR",
+      "BEGIN:VEVENT",
+      "UID:cancelled-1",
+      "DTSTART:20240601T150000Z",
+      "DTEND:20240601T160000Z",
+      "STATUS:CANCELLED",
+      "SUMMARY:Nope",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+    expect(parseFirstVEvent(ics)?.cancelled).toBe(true);
   });
 });

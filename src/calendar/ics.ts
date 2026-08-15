@@ -242,6 +242,14 @@ export interface ParsedCalendarEvent {
   geo: { lat: number; lon: number } | null;
   /** Relative before-start VALARM offsets in minutes (empty if none). */
   alarmMinutesBefore: number[];
+  /** Empty string for master / non-recurring. */
+  recurrenceId: string;
+  recurrenceRule: string | null;
+  isAllDay: boolean;
+  cancelled: boolean;
+  sourceUpdatedAt: Date | null;
+  /** TZID from DTSTART, or null for UTC / floating / all-day. */
+  timeZone: string | null;
 }
 
 function unescapeIcsText(value: string): string {
@@ -277,6 +285,23 @@ function parseIcsDateTime(value: string, timeZone?: string | null): Date | null 
   return new Date(Date.UTC(year, month - 1, day, hour, minute, second));
 }
 
+/** All-day VALUE=DATE → UTC midnight of civil date (end is exclusive in ICS). */
+export function parseIcsDateOnly(
+  value: string,
+  timeZone?: string | null,
+): Date | null {
+  const v = value.trim();
+  const m = /^(\d{4})(\d{2})(\d{2})$/.exec(v);
+  if (!m) return null;
+  const year = +m[1]!;
+  const month = +m[2]!;
+  const day = +m[3]!;
+  if (timeZone) {
+    return zonedLocalToUtc(timeZone, year, month, day, 0, 0, 0);
+  }
+  return new Date(Date.UTC(year, month - 1, day, 0, 0, 0));
+}
+
 function propField(
   block: string,
   name: string,
@@ -309,12 +334,43 @@ function parseGeo(raw: string | null): { lat: number; lon: number } | null {
   return { lat, lon };
 }
 
-/** Extract the first VEVENT from an iCalendar payload. */
-export function parseFirstVEvent(ics: string): ParsedCalendarEvent | null {
-  const unfolded = unfoldIcs(ics.replace(/\r\n/g, "\n"));
-  const m = /BEGIN:VEVENT([\s\S]*?)END:VEVENT/i.exec(unfolded);
-  if (!m) return null;
-  const block = m[1] ?? "";
+function parseDtField(
+  field: { params: string; value: string } | null,
+  fallbackTz: string | null,
+): { date: Date | null; isAllDay: boolean; timeZone: string | null } {
+  if (!field) return { date: null, isAllDay: false, timeZone: null };
+  const tz = tzidFromParams(field.params) ?? fallbackTz;
+  const valueDate =
+    /;VALUE=DATE(?:;|$)/i.test(field.params) ||
+    (!field.value.includes("T") && /^\d{8}$/.test(field.value));
+  if (valueDate) {
+    return {
+      date: parseIcsDateOnly(field.value, tz),
+      isAllDay: true,
+      timeZone: tz,
+    };
+  }
+  return {
+    date: parseIcsDateTime(field.value, tz),
+    isAllDay: false,
+    timeZone: tz,
+  };
+}
+
+function parseSourceUpdatedAt(block: string): Date | null {
+  const lastMod = propField(block, "LAST-MODIFIED");
+  if (lastMod) {
+    const d = parseIcsDateTime(lastMod.value, tzidFromParams(lastMod.params));
+    if (d) return d;
+  }
+  const stamp = propField(block, "DTSTAMP");
+  if (stamp) {
+    return parseIcsDateTime(stamp.value, tzidFromParams(stamp.params));
+  }
+  return null;
+}
+
+function parseVEventBlock(block: string): ParsedCalendarEvent | null {
   const uid = propValue(block, "UID");
   if (!uid) return null;
   const summary = propValue(block, "SUMMARY");
@@ -322,18 +378,112 @@ export function parseFirstVEvent(ics: string): ParsedCalendarEvent | null {
   const location = propValue(block, "LOCATION");
   const dtStart = propField(block, "DTSTART");
   const dtEnd = propField(block, "DTEND");
+  const recurrenceIdField = propField(block, "RECURRENCE-ID");
+  const rrule = propValue(block, "RRULE");
+  const status = propValue(block, "STATUS");
+
+  const startParsed = parseDtField(dtStart, null);
+  const endParsed = parseDtField(dtEnd, startParsed.timeZone);
+  let end = endParsed.date;
+  const isAllDay = startParsed.isAllDay;
+  if (isAllDay && startParsed.date && !end) {
+    // Default all-day duration: exclusive next day.
+    end = new Date(startParsed.date.getTime() + 24 * 60 * 60 * 1000);
+  }
+
+  let recurrenceId = "";
+  if (recurrenceIdField) {
+    const rid = parseDtField(recurrenceIdField, startParsed.timeZone);
+    if (rid.isAllDay && rid.date) {
+      const y = rid.date.getUTCFullYear();
+      const mo = String(rid.date.getUTCMonth() + 1).padStart(2, "0");
+      const d = String(rid.date.getUTCDate()).padStart(2, "0");
+      recurrenceId = `${y}${mo}${d}`;
+    } else if (rid.date) {
+      recurrenceId = rid.date.toISOString();
+    } else {
+      recurrenceId = recurrenceIdField.value.trim();
+    }
+  }
+
   return {
     uid,
     title: summary ? unescapeIcsText(summary) : "",
-    start: dtStart
-      ? parseIcsDateTime(dtStart.value, tzidFromParams(dtStart.params))
-      : null,
-    end: dtEnd
-      ? parseIcsDateTime(dtEnd.value, tzidFromParams(dtEnd.params))
-      : null,
+    start: startParsed.date,
+    end,
     notes: description ? unescapeIcsText(description) : null,
     location: location ? unescapeIcsText(location) : null,
     geo: parseGeo(propValue(block, "GEO")),
     alarmMinutesBefore: parseAlarmMinutesFromVEvent(block),
+    recurrenceId,
+    recurrenceRule: rrule?.trim() || null,
+    isAllDay,
+    cancelled: (status ?? "").toUpperCase() === "CANCELLED",
+    sourceUpdatedAt: parseSourceUpdatedAt(block),
+    timeZone: startParsed.timeZone,
   };
+}
+
+/** Extract all VEVENT components from an iCalendar payload. */
+export function parseAllVEvents(ics: string): ParsedCalendarEvent[] {
+  const unfolded = unfoldIcs(ics.replace(/\r\n/g, "\n"));
+  const events: ParsedCalendarEvent[] = [];
+  const re = /BEGIN:VEVENT([\s\S]*?)END:VEVENT/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(unfolded)) !== null) {
+    const parsed = parseVEventBlock(match[1] ?? "");
+    if (parsed) events.push(parsed);
+  }
+  return events;
+}
+
+/** Extract the first VEVENT from an iCalendar payload. */
+export function parseFirstVEvent(ics: string): ParsedCalendarEvent | null {
+  return parseAllVEvents(ics)[0] ?? null;
+}
+
+/**
+ * Replace a single VEVENT (matched by UID + optional RECURRENCE-ID) inside an
+ * existing VCALENDAR. Returns null if the target VEVENT is not found.
+ */
+export function replaceVEventInIcs(
+  ics: string,
+  opts: {
+    uid: string;
+    recurrenceId?: string;
+    replacementVEventBlock: string;
+  },
+): string | null {
+  const nl = ics.includes("\r\n") ? "\r\n" : "\n";
+  const unfolded = unfoldIcs(ics.replace(/\r\n/g, "\n"));
+  let replaced = false;
+  const targetRid = (opts.recurrenceId ?? "").trim();
+  // Rebuild from matches to preserve other events.
+  const parts: string[] = [];
+  let lastIndex = 0;
+  const fullRe = /BEGIN:VEVENT[\s\S]*?END:VEVENT/gi;
+  let match: RegExpExecArray | null;
+  while ((match = fullRe.exec(unfolded)) !== null) {
+    parts.push(unfolded.slice(lastIndex, match.index));
+    const block = match[0];
+    const inner = /BEGIN:VEVENT([\s\S]*?)END:VEVENT/i.exec(block)?.[1] ?? "";
+    const parsed = parseVEventBlock(inner);
+    const rid = parsed?.recurrenceId ?? "";
+    if (
+      parsed &&
+      parsed.uid === opts.uid &&
+      rid === targetRid &&
+      !replaced
+    ) {
+      parts.push(opts.replacementVEventBlock.trim());
+      replaced = true;
+    } else {
+      parts.push(block);
+    }
+    lastIndex = match.index + block.length;
+  }
+  parts.push(unfolded.slice(lastIndex));
+  if (!replaced) return null;
+  const joined = parts.join("");
+  return joined.includes("\r\n") ? joined : joined.replace(/\n/g, nl);
 }

@@ -12,8 +12,10 @@ import {
 } from "../calendar/ics.js";
 import { toPublic, type EventStore } from "../events/store.js";
 import type { EventRecord } from "../events/types.js";
+import { syncAppleCalendarToEvents } from "../events/apple-sync.js";
 import { formatLocal } from "../utils/time/index.js";
 import { logger, truncateForLog } from "../log.js";
+import { classifyError, recordVoiceError } from "../telemetry.js";
 import { type ToolDefinition, z } from "./gateway.js";
 
 const alarmMinutesBeforeSchema = z
@@ -233,9 +235,39 @@ function locationPatchFromResolved(
 async function resolveEvent(
   store: EventStore,
   opts: { event_id?: string; event_uid?: string },
-): Promise<EventRecord | null> {
-  if (opts.event_id) return store.getById(opts.event_id);
-  if (opts.event_uid) return store.getByUid(opts.event_uid);
+): Promise<
+  | { ok: true; event: EventRecord }
+  | { ok: false; error: string }
+> {
+  if (opts.event_id) {
+    const event = await store.getById(opts.event_id);
+    if (!event) return { ok: false, error: "Calendar event not found" };
+    return { ok: true, event };
+  }
+  if (opts.event_uid) {
+    const rows = await store.listByUid(opts.event_uid);
+    if (rows.length === 0) {
+      return { ok: false, error: "Calendar event not found" };
+    }
+    if (rows.length > 1) {
+      return {
+        ok: false,
+        error:
+          "Multiple events share this event_uid (recurring series). Use event_id.",
+      };
+    }
+    return { ok: true, event: rows[0]! };
+  }
+  return { ok: false, error: "Provide event_id or event_uid" };
+}
+
+function rejectComplexWrite(event: EventRecord): string | null {
+  if (event.isAllDay) {
+    return "Updating/deleting all-day events is not supported yet";
+  }
+  if (event.recurrenceRule || event.recurrenceId) {
+    return "Updating/deleting recurring events is not supported yet";
+  }
   return null;
 }
 
@@ -357,6 +389,10 @@ export function createCalendarTools(deps: {
             result: "error",
             error_message: truncateForLog(created.error),
           });
+          recordVoiceError({
+            errorType: classifyError(created.error),
+            handler: "tool",
+          });
           return { ok: false, error: created.error };
         }
 
@@ -371,6 +407,9 @@ export function createCalendarTools(deps: {
             timezone: tz(),
             notes: parsed.data.notes ?? null,
             alarmMinutesBefore: resolvedAlarms,
+            recurrenceId: "",
+            recurrenceRule: null,
+            isAllDay: false,
             locationName: loc.locationName,
             locationAddress: loc.locationAddress,
             locationMapsUrl: loc.locationMapsUrl,
@@ -408,6 +447,26 @@ export function createCalendarTools(deps: {
             location: icsLocationFromFields(loc) ?? null,
           },
         };
+      },
+    },
+    {
+      name: "calendar_sync",
+      description:
+        "Full sync of the configured Apple Calendar into local events. Apple Calendar is the source of truth: creates/updates local rows from Apple and deletes local events missing remotely. Call ONLY when the user explicitly asks to sync the calendar. Does not write to Apple.",
+      parameters: {
+        type: "object",
+        properties: {},
+      },
+      handler: async () => {
+        const result = await syncAppleCalendarToEvents({
+          calendar: deps.calendar,
+          store: deps.store,
+          defaultTimeZone: tz(),
+        });
+        if (!result.ok) {
+          return { ok: false, error: result.error, data: result.data };
+        }
+        return { ok: true, data: result.data };
       },
     },
     {
@@ -547,10 +606,13 @@ export function createCalendarTools(deps: {
         if (!parsed.success) {
           return { ok: false, error: parsed.error.message };
         }
-        const event = await resolveEvent(deps.store, parsed.data);
-        if (!event) {
-          return { ok: false, error: "Calendar event not found" };
+        const resolved = await resolveEvent(deps.store, parsed.data);
+        if (!resolved.ok) {
+          return { ok: false, error: resolved.error };
         }
+        const event = resolved.event;
+        const complex = rejectComplexWrite(event);
+        if (complex) return { ok: false, error: complex };
 
         const locationInputProvided =
           parsed.data.location_name !== undefined ||
@@ -714,10 +776,13 @@ export function createCalendarTools(deps: {
         if (!parsed.success) {
           return { ok: false, error: parsed.error.message };
         }
-        const event = await resolveEvent(deps.store, parsed.data);
-        if (!event) {
-          return { ok: false, error: "Calendar event not found" };
+        const resolved = await resolveEvent(deps.store, parsed.data);
+        if (!resolved.ok) {
+          return { ok: false, error: resolved.error };
         }
+        const event = resolved.event;
+        const complex = rejectComplexWrite(event);
+        if (complex) return { ok: false, error: complex };
         const deleted = await deps.calendar.deleteEvent(event.href);
         if (!deleted.ok) {
           logger.warn("[calendar] delete failed", {

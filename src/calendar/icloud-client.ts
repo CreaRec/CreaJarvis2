@@ -2,6 +2,7 @@ import { createDAVClient, type DAVObject } from "tsdav";
 import {
   buildVEventIcs,
   defaultEventEnd,
+  parseAllVEvents,
   parseFirstVEvent,
   replaceValarmsInIcs,
   resolveAlarmMinutes,
@@ -60,6 +61,18 @@ export interface CalendarEventListItem {
   notes: string | null;
   location: string | null;
   geo: { lat: number; lon: number } | null;
+  recurrenceId: string;
+  recurrenceRule: string | null;
+  isAllDay: boolean;
+  cancelled: boolean;
+  sourceUpdatedAt: string | null;
+  alarmMinutesBefore: number[];
+  timeZone: string | null;
+}
+
+export interface CalendarRemoteEvent extends CalendarEventListItem {
+  /** Raw ICS object data when available. */
+  rawIcs?: string;
 }
 
 export interface ICloudCalendarClient {
@@ -71,6 +84,10 @@ export interface ICloudCalendarClient {
     to: Date;
     limit?: number;
   }): Promise<CalendarClientResult<{ events: CalendarEventListItem[] }>>;
+  /** Full calendar snapshot (no timeRange, no limit). */
+  fetchAllEvents(): Promise<
+    CalendarClientResult<{ events: CalendarRemoteEvent[]; complete: boolean }>
+  >;
   updateEvent(
     href: string,
     patch: CalendarEventPatch,
@@ -171,6 +188,31 @@ export class TsdavICloudCalendarClient implements ICloudCalendarClient {
     }
   }
 
+  private toListItem(
+    href: string,
+    parsed: ParsedCalendarEvent,
+    rawIcs?: string,
+  ): CalendarRemoteEvent {
+    return {
+      uid: parsed.uid,
+      href,
+      title: parsed.title,
+      start: parsed.start?.toISOString() ?? null,
+      end: parsed.end?.toISOString() ?? null,
+      notes: parsed.notes,
+      location: parsed.location,
+      geo: parsed.geo,
+      recurrenceId: parsed.recurrenceId,
+      recurrenceRule: parsed.recurrenceRule,
+      isAllDay: parsed.isAllDay,
+      cancelled: parsed.cancelled,
+      sourceUpdatedAt: parsed.sourceUpdatedAt?.toISOString() ?? null,
+      alarmMinutesBefore: parsed.alarmMinutesBefore,
+      timeZone: parsed.timeZone,
+      ...(rawIcs !== undefined ? { rawIcs } : {}),
+    };
+  }
+
   async createEvent(
     input: CalendarEventInput,
   ): Promise<CalendarClientResult<{ uid: string; href: string; end: Date }>> {
@@ -222,19 +264,47 @@ export class TsdavICloudCalendarClient implements ICloudCalendarClient {
         const raw = obj.data;
         if (typeof raw !== "string" || !raw.trim()) continue;
         const parsed = parseFirstVEvent(raw);
-        if (!parsed) continue;
-        events.push({
-          uid: parsed.uid,
-          href: obj.url,
-          title: parsed.title,
-          start: parsed.start?.toISOString() ?? null,
-          end: parsed.end?.toISOString() ?? null,
-          notes: parsed.notes,
-          location: parsed.location,
-          geo: parsed.geo,
-        });
+        if (!parsed || parsed.cancelled) continue;
+        events.push(this.toListItem(obj.url, parsed));
       }
       return { ok: true, data: { events } };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  async fetchAllEvents(): Promise<
+    CalendarClientResult<{ events: CalendarRemoteEvent[]; complete: boolean }>
+  > {
+    try {
+      const client = await this.getClient();
+      const objects = await client.fetchCalendarObjects({
+        calendar: this.calendarRef(),
+      });
+      const events: CalendarRemoteEvent[] = [];
+      let parseFailures = 0;
+      for (const obj of objects as DAVObject[]) {
+        const raw = obj.data;
+        if (typeof raw !== "string" || !raw.trim()) {
+          parseFailures += 1;
+          continue;
+        }
+        const parsedList = parseAllVEvents(raw);
+        if (parsedList.length === 0) {
+          parseFailures += 1;
+          continue;
+        }
+        for (const parsed of parsedList) {
+          events.push(this.toListItem(obj.url, parsed, raw));
+        }
+      }
+      // Fail-closed: empty collection with failures is incomplete; zero objects
+      // with zero failures is a valid empty calendar.
+      const complete = parseFailures === 0;
+      return { ok: true, data: { events, complete } };
     } catch (err) {
       return {
         ok: false,

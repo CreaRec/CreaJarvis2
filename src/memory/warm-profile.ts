@@ -113,6 +113,7 @@ export function buildSessionInstructions(
           "Reschedule or edit a calendar event → calendar_update_event (event_id or event_uid).",
           "Change/remove Apple Calendar alerts before the event → calendar_update_event with only alarm_minutes_before ([] clears, [30] custom, null restores default 1h+15m; omit to keep existing). Do not pass start/end/title when only changing alerts.",
           "Remove from calendar → calendar_delete_event. Reminder cancel does not delete calendar events.",
+          "Explicit «синхронизируй календарь / sync Apple Calendar» → calendar_sync ONLY. Apple is source of truth (imports/updates/deletes local events). Do NOT call calendar_sync automatically or after create/list.",
           "",
         ]
       : []),
