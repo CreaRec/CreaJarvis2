@@ -252,7 +252,7 @@ export function createThemeTools(deps: {
     {
       name: "theme_add_entry",
       description:
-        "Add a single note/question/decision/checklist/link to a theme (by theme_id or query). Prefer theme_add_entries for multiple items.",
+        "Add a single note/question/decision/checklist/link to a theme (by theme_id or query). Prefer theme_add_entries for multiple items. Use kind=note for ticket/booking fields from screenshots (carrier, flight number, PNR, route, times).",
       parameters: {
         type: "object",
         properties: {
@@ -306,7 +306,7 @@ export function createThemeTools(deps: {
     {
       name: "theme_add_entries",
       description:
-        "Add multiple entries to a theme in one call (shopping lists, packing). Default item kind is checklist when omitted.",
+        "Add multiple entries to a theme in one call (shopping lists, packing, or booking details from screenshots). Default item kind is checklist when omitted — for tickets/reservations set each item kind=note and include exact carrier, flight/train numbers, PNR, routes, and times.",
       parameters: {
         type: "object",
         properties: {

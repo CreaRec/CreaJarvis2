@@ -203,5 +203,9 @@ describe("createThemeTools", () => {
     expect(byName.theme_search).toMatch(/memory_search/);
     expect(byName.theme_get).toMatch(/trip dates|Майами/i);
     expect(byName.theme_get).toMatch(/memory_search/);
+    expect(byName.theme_add_entry).toMatch(/kind=note/);
+    expect(byName.theme_add_entry).toMatch(/PNR|booking/i);
+    expect(byName.theme_add_entries).toMatch(/kind=note/);
+    expect(byName.theme_add_entries).toMatch(/screenshots|booking/i);
   });
 });

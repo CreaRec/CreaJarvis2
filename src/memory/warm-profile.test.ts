@@ -64,6 +64,9 @@ describe("buildSessionInstructions", () => {
     expect(text).toContain("Themes (ideas / projects / trips / lists):");
     expect(text).toContain("theme_*");
     expect(text).toContain("theme_add_entries");
+    expect(text).toContain("persist the details in the same turn");
+    expect(text).toContain("exact carrier");
+    expect(text).toContain("Only claim that trip information was saved");
     expect(text).toContain("kind=list");
     expect(text).toContain("checklist");
     expect(text).toContain("memory_timeline");

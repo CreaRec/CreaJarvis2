@@ -55,6 +55,12 @@ export interface RunAgentTurnInput {
 }
 
 const DEFAULT_MAX_ITERATIONS = 8;
+const ATTACHMENT_INSTRUCTIONS = [
+  "Attachments in this turn are primary source material. Inspect every attachment independently and thoroughly before answering.",
+  "Transcribe all relevant visible details exactly, including names, routes, dates, times, time zones, amounts, carriers, flight or train numbers, booking/confirmation codes, addresses, and status. Do not omit identifiers because a summary seems sufficient.",
+  "When the user asks to add, save, remember, record, or retry saving information, persistence is part of the request: call the appropriate write tool in this same turn. For trip attachments, use theme_get when needed and theme_add_entry/theme_add_entries with kind=note; include all extracted booking details in the stored note(s).",
+  "A conversational answer or attachment archive is not persistence into a theme, plan, reminder, calendar, or memory. Never say information was saved unless the corresponding write tool succeeded.",
+].join("\n");
 
 function attachmentContent(
   attachment: AgentTurnAttachment,
@@ -63,7 +69,7 @@ function attachmentContent(
     ? {
         type: "input_image",
         file_id: attachment.fileId,
-        detail: "auto",
+        detail: "high",
       }
     : { type: "input_file", file_id: attachment.fileId };
 }
@@ -112,7 +118,10 @@ export async function runAgentTurn(
     const completion = await createResponse({
       apiKey: input.apiKey,
       model: input.model,
-      instructions: input.instructions,
+      instructions:
+        (input.attachments?.length ?? 0) > 0
+          ? `${input.instructions}\n\n${ATTACHMENT_INSTRUCTIONS}`
+          : input.instructions,
       input: responseInput,
       tools: toolDefs.length > 0 ? toolDefs : undefined,
       fetchImpl: input.fetchImpl,

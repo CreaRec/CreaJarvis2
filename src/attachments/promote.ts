@@ -19,10 +19,10 @@ function attachmentInputContent(input: {
   | {
       type: "input_image";
       file_id: string;
-      detail: "auto";
+      detail: "high";
     } {
   return input.mimeType.toLowerCase().startsWith("image/")
-    ? { type: "input_image", file_id: input.fileId, detail: "auto" }
+    ? { type: "input_image", file_id: input.fileId, detail: "high" }
     : { type: "input_file", file_id: input.fileId };
 }
 
@@ -49,7 +49,7 @@ export async function describeAttachment(input: {
       apiKey: input.apiKey,
       model: input.model,
       instructions:
-        "Write a short Russian description (2-5 sentences) of this attachment for later search. Include key visible text or topics. Do not answer a user question.",
+        "Create a detailed searchable Russian description of this attachment. Inspect it thoroughly and transcribe all relevant visible facts exactly, including names, routes, dates, times, time zones, amounts, carriers, flight or train numbers, booking/confirmation codes, addresses, and status. Preserve relationships between fields and do not omit identifiers. Do not answer a user question or invent unreadable values.",
       input: [
         {
           role: "user",

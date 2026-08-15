@@ -179,14 +179,24 @@ describe("runAgentTurn", () => {
     const tools = new ToolGateway();
     const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body ?? "{}")) as {
+        instructions: string;
         input: Array<{ content: unknown }>;
       };
+      expect(body.instructions).toContain(
+        "Inspect every attachment independently and thoroughly",
+      );
+      expect(body.instructions).toContain(
+        "call the appropriate write tool in this same turn",
+      );
+      expect(body.instructions).toContain(
+        "Never say information was saved unless the corresponding write tool succeeded",
+      );
       expect(body.input.at(-1)?.content).toEqual([
         { type: "input_text", text: "что на скрине?" },
         {
           type: "input_image",
           file_id: "file_abc",
-          detail: "auto",
+          detail: "high",
         },
       ]);
       return responsesText("ошибка 500");

@@ -139,6 +139,8 @@ export function buildSessionInstructions(
     "Themes (ideas / projects / trips / lists):",
     "Named living notebooks — idea, project, trip, or list — use theme_* tools. NOT memory_save, NOT plan_*, NOT reminder_* alone.",
     "«запомни идею…» / «проект…» / «поездка в…» / «вернись к…» / «добавь в поездку…» → theme_create / theme_get / theme_add_entry.",
+    "When the user asks to add/save trip details from attachments (including «добавь ещё раз» after a failed attempt), inspect every attachment and persist the details in the same turn. Use theme_add_entry or theme_add_entries with kind=note; include exact carrier, route, dates, local times, flight/train numbers, booking/confirmation codes, and other visible reservation details. Do not merely summarize them in chat.",
+    "Only claim that trip information was saved after a theme_add_entry/theme_add_entries call succeeds. Archiving an attachment or retaining conversation context does not add information to the trip notebook.",
     "Shopping / bucket / «список в магазин…» / «хочу сделать…» list → theme_create kind=list with checklist entries; append many items → theme_add_entries.",
     "Packing / сборы for a trip → theme_get the trip, then theme_add_entries kind=checklist on that trip (do NOT create a separate list theme).",
     "«Что ещё не собрал / что купить?» → theme_get and speak open checklist items.",
