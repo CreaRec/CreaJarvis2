@@ -205,10 +205,35 @@ function eventInputFromRecord(
   return input;
 }
 
+/** Empty / non-http(s) strings from the model become null instead of failing the tool. */
+export function coerceOptionalHttpUrl(
+  value: unknown,
+): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    return trimmed;
+  } catch {
+    return null;
+  }
+}
+
+const optionalHttpUrl = z.preprocess(
+  coerceOptionalHttpUrl,
+  z.string().url().nullable().optional(),
+);
+
 const locationToolFields = {
   location_name: z.string().min(1).nullable().optional(),
   location_address: z.string().min(1).nullable().optional(),
-  location_maps_url: z.string().url().nullable().optional(),
+  location_maps_url: optionalHttpUrl,
   location_lat: z.number().finite().nullable().optional(),
   location_lon: z.number().finite().nullable().optional(),
 };
@@ -372,7 +397,8 @@ export function createCalendarTools(deps: {
           },
           location_maps_url: {
             type: "string",
-            description: "Google Maps URL for DESCRIPTION",
+            description:
+              "http(s) Maps URL for DESCRIPTION. Omit if unknown — never pass a place name or empty string.",
           },
           location_lat: { type: "number" },
           location_lon: { type: "number" },
@@ -651,7 +677,11 @@ export function createCalendarTools(deps: {
           },
           location_name: { type: "string" },
           location_address: { type: "string" },
-          location_maps_url: { type: "string" },
+          location_maps_url: {
+            type: "string",
+            description:
+              "http(s) Maps URL. Omit if unknown — never pass a place name or empty string.",
+          },
           location_lat: { type: "number" },
           location_lon: { type: "number" },
         },

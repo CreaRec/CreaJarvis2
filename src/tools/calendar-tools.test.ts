@@ -5,10 +5,27 @@ import type { EventRecord } from "../events/types.js";
 import type { EventStore } from "../events/store.js";
 import { ToolGateway } from "./gateway.js";
 import {
+  coerceOptionalHttpUrl,
   createCalendarTools,
   resolveCalendarListRange,
 } from "./calendar-tools.js";
 import { logger } from "../log.js";
+
+describe("coerceOptionalHttpUrl", () => {
+  it("keeps http(s) URLs and drops empty or invalid values", () => {
+    expect(coerceOptionalHttpUrl(undefined)).toBeUndefined();
+    expect(coerceOptionalHttpUrl(null)).toBeNull();
+    expect(coerceOptionalHttpUrl("https://maps.google.com/?cid=1")).toBe(
+      "https://maps.google.com/?cid=1",
+    );
+    expect(coerceOptionalHttpUrl("  https://maps.app.goo.gl/x  ")).toBe(
+      "https://maps.app.goo.gl/x",
+    );
+    expect(coerceOptionalHttpUrl("")).toBeNull();
+    expect(coerceOptionalHttpUrl("Miami")).toBeNull();
+    expect(coerceOptionalHttpUrl("ftp://example.com")).toBeNull();
+  });
+});
 
 describe("resolveCalendarListRange", () => {
   const TZ = "America/Chicago";
@@ -249,6 +266,40 @@ describe("createCalendarTools", () => {
         description: "https://maps.google.com/?cid=1",
       }),
     );
+  });
+
+  it("creates the event when location_maps_url is empty or not a URL", async () => {
+    const store = makeStore({
+      create: vi.fn().mockResolvedValue(makeEvent()),
+    });
+    const calendar = makeCalendar({
+      createEvent: vi.fn().mockResolvedValue({
+        ok: true,
+        data: {
+          uid: "uid-1",
+          href: "https://caldav.example/uid-1.ics",
+          end: new Date("2024-01-16T16:30:00.000Z"),
+        },
+      }),
+    });
+    const gw = gatewayWith(calendar, store);
+
+    for (const location_maps_url of ["", "  ", "Miami", "not-a-url"]) {
+      vi.mocked(calendar.createEvent).mockClear();
+      const result = await gw.execute("calendar_create_event", {
+        title: "Cruise",
+        start: "2024-01-16T16:00:00.000Z",
+        location_name: "Miami",
+        location_maps_url,
+      });
+      expect(result.ok).toBe(true);
+      expect(calendar.createEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          location: "Miami",
+          description: undefined,
+        }),
+      );
+    }
   });
 
   it("compensates with CalDAV delete when DB create fails", async () => {

@@ -106,8 +106,10 @@ export function buildSessionInstructions(
     ...(calendarEnabled
       ? [
           "Apple Calendar:",
-          "Explicit «создай событие / в календарь / встречу…» → calendar_create_event directly (do not create a reminder first). Events are independent of reminders.",
+          "Explicit «создай событие / в календарь / встречу…» → calendar_create_event directly (do not create a reminder first, do not theme_add_entry). A trip note is not a calendar event. Events are independent of reminders.",
+          "If start/end already exist in a trip note, attachment, or earlier turn, pass those times — do not ask the user to repeat known times.",
           "If the user names a venue/place for a meeting → call places_search first. On one clear hit (or after the user picks), pass location_name, location_address, location_maps_url, location_lat, location_lon into calendar_create_event.",
+          "location_maps_url: only a real http(s) URL from places_search. Omit if unknown — never pass a place name, empty string, or invented URL.",
           "When speaking location: use location_name / location_address. Never read location_maps_url aloud.",
           "«Что в календаре / какие встречи?» → calendar_list (not reminder_list).",
           "Reschedule or edit a calendar event → calendar_update_event (event_id or event_uid).",
@@ -150,6 +152,11 @@ export function buildSessionInstructions(
     "Promote idea→project → theme_promote. Archive → theme_archive. List recent → theme_list.",
     "Trip/project structured fields → meta JSON (destination, dates, budget, companions, nextStep, …).",
     "To put something on today's agenda or set a timed reminder from a theme → theme_get then plan_add / reminder_create (do not store day items only inside the theme).",
+    ...(calendarEnabled
+      ? [
+          "Explicit «в календарь» after a trip note → calendar_create_event with times from the note; do not add a duplicate theme entry.",
+        ]
+      : []),
     "Biography facts about the user → memory_*. Timed «напомни» without a notebook → reminder_*. Daily agenda → plan_*.",
     "",
     "Devices:",

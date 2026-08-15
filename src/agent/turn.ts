@@ -58,7 +58,7 @@ const DEFAULT_MAX_ITERATIONS = 8;
 const ATTACHMENT_INSTRUCTIONS = [
   "Attachments in this turn are primary source material. Inspect every attachment independently and thoroughly before answering.",
   "Transcribe all relevant visible details exactly, including names, routes, dates, times, time zones, amounts, carriers, flight or train numbers, booking/confirmation codes, addresses, and status. Do not omit identifiers because a summary seems sufficient.",
-  "When the user asks to add, save, remember, record, or retry saving information, persistence is part of the request: call the appropriate write tool in this same turn. For trip attachments, use theme_get when needed and theme_add_entry/theme_add_entries with kind=note; include all extracted booking details in the stored note(s).",
+  "When the user asks to add, save, remember, record, or retry saving information, persistence is part of the request: call the appropriate write tool in this same turn. For trip notebooks («добавь к поездке»), use theme_get when needed and theme_add_entry/theme_add_entries with kind=note; include all extracted booking details in the stored note(s). Explicit calendar requests («в календарь / событие») → calendar_create_event only, using times already in the note or attachment — do not write another theme entry.",
   "A conversational answer or attachment archive is not persistence into a theme, plan, reminder, calendar, or memory. Never say information was saved unless the corresponding write tool succeeded.",
 ].join("\n");
 

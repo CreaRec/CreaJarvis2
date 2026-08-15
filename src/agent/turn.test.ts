@@ -188,6 +188,10 @@ describe("runAgentTurn", () => {
       expect(body.instructions).toContain(
         "call the appropriate write tool in this same turn",
       );
+      expect(body.instructions).toContain("calendar_create_event only");
+      expect(body.instructions).toContain(
+        "do not write another theme entry",
+      );
       expect(body.instructions).toContain(
         "Never say information was saved unless the corresponding write tool succeeded",
       );

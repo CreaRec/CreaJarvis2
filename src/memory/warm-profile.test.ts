@@ -75,6 +75,7 @@ describe("buildSessionInstructions", () => {
     expect(text).toContain("client Settings");
     expect(text).not.toContain("device_update");
     expect(text).not.toContain("Apple Calendar:");
+    expect(text).not.toContain("do not add a duplicate theme entry");
   });
 
   it("includes Apple Calendar rules when enabled", () => {
@@ -89,6 +90,10 @@ describe("buildSessionInstructions", () => {
     expect(text).toContain("Apple Calendar:");
     expect(text).toContain("calendar_create_event");
     expect(text).toContain("calendar_create_event directly");
+    expect(text).toContain("do not theme_add_entry");
+    expect(text).toContain("do not ask the user to repeat known times");
+    expect(text).toContain("only a real http(s) URL");
+    expect(text).toContain("do not add a duplicate theme entry");
     expect(text).not.toContain("offer_calendar");
     expect(text).toContain("calendar_list");
     expect(text).toContain("calendar_sync");
