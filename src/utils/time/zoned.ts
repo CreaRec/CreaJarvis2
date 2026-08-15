@@ -1,5 +1,43 @@
 export function formatLocal(date: Date, timeZone: string): string {
+  const offset = fixedUtcOffsetMinutes(timeZone);
+  if (offset !== null) {
+    return new Date(date.getTime() + offset * 60_000).toLocaleString("ru-RU", {
+      timeZone: "UTC",
+    });
+  }
   return date.toLocaleString("ru-RU", { timeZone });
+}
+
+/**
+ * Parse Apple/ICS fixed-offset TZID labels into minutes east of UTC.
+ * Examples: GMT-0500, UTC+05:30, +0530, -05:00. Null for IANA names.
+ */
+export function fixedUtcOffsetMinutes(timeZone: string): number | null {
+  const t = timeZone.trim();
+  const withMinutes =
+    /^(?:(?:GMT|UTC)\s*)?([+-])(\d{2}):?(\d{2})$/i.exec(t);
+  if (withMinutes) {
+    const sign = withMinutes[1] === "-" ? -1 : 1;
+    const hours = Number(withMinutes[2]);
+    const minutes = Number(withMinutes[3]);
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+    if (hours > 14 || minutes > 59) return null;
+    return sign * (hours * 60 + minutes);
+  }
+  const hoursOnly = /^(?:GMT|UTC)\s*([+-])(\d{1,2})$/i.exec(t);
+  if (hoursOnly) {
+    const sign = hoursOnly[1] === "-" ? -1 : 1;
+    const hours = Number(hoursOnly[2]);
+    if (!Number.isFinite(hours) || hours > 14) return null;
+    return sign * hours * 60;
+  }
+  return null;
+}
+
+function weekdayFromUtcMs(ms: number): number {
+  // Date.getUTCDay: 0=Sun .. 6=Sat → ISO 1=Mon .. 7=Sun
+  const d = new Date(ms).getUTCDay();
+  return d === 0 ? 7 : d;
 }
 
 /** Parts of `date` interpreted in `timeZone`. */
@@ -15,6 +53,20 @@ export function zonedParts(
   second: number;
   weekday: number; // 1=Mon .. 7=Sun (ISO)
 } {
+  const offset = fixedUtcOffsetMinutes(timeZone);
+  if (offset !== null) {
+    const local = new Date(date.getTime() + offset * 60_000);
+    return {
+      year: local.getUTCFullYear(),
+      month: local.getUTCMonth() + 1,
+      day: local.getUTCDate(),
+      hour: local.getUTCHours(),
+      minute: local.getUTCMinutes(),
+      second: local.getUTCSeconds(),
+      weekday: weekdayFromUtcMs(local.getTime()),
+    };
+  }
+
   const fmt = new Intl.DateTimeFormat("en-US", {
     timeZone,
     year: "numeric",
@@ -52,6 +104,7 @@ export function zonedParts(
 /**
  * Build a UTC Date for a civil datetime in `timeZone`.
  * Uses iterative offset correction (no extra deps).
+ * Also accepts Apple fixed-offset labels like GMT-0500.
  */
 export function zonedLocalToUtc(
   timeZone: string,
@@ -62,6 +115,13 @@ export function zonedLocalToUtc(
   minute: number,
   second = 0,
 ): Date {
+  const offset = fixedUtcOffsetMinutes(timeZone);
+  if (offset !== null) {
+    return new Date(
+      Date.UTC(year, month - 1, day, hour, minute, second) - offset * 60_000,
+    );
+  }
+
   let guess = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
   for (let i = 0; i < 3; i++) {
     const p = zonedParts(guess, timeZone);

@@ -181,6 +181,23 @@ describe("parseFirstVEvent", () => {
     expect(parsed?.end?.toISOString()).toBe("2024-06-01T14:45:00.000Z");
   });
 
+  it("parses Apple fixed-offset TZID GMT-0500", () => {
+    const ics = [
+      "BEGIN:VCALENDAR",
+      "BEGIN:VEVENT",
+      "UID:gmt-offset",
+      "SUMMARY:Legacy",
+      "DTSTART;TZID=GMT-0500:20240601T150000",
+      "DTEND;TZID=GMT-0500:20240601T153000",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+    const parsed = parseFirstVEvent(ics);
+    expect(parsed?.timeZone).toBe("GMT-0500");
+    expect(parsed?.start?.toISOString()).toBe("2024-06-01T20:00:00.000Z");
+    expect(parsed?.end?.toISOString()).toBe("2024-06-01T20:30:00.000Z");
+  });
+
   it("parses LOCATION and GEO", () => {
     const ics = [
       "BEGIN:VCALENDAR",

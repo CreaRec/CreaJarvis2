@@ -1,5 +1,6 @@
 export {
   addDaysLocal,
+  fixedUtcOffsetMinutes,
   formatLocal,
   localDateString,
   zonedLocalToUtc,

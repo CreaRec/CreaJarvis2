@@ -1,12 +1,28 @@
 import { describe, expect, it } from "vitest";
 import {
   addDaysLocal,
+  fixedUtcOffsetMinutes,
   localDateString,
   zonedLocalToUtc,
   zonedParts,
 } from "./zoned.js";
 
 const TZ = "America/Chicago";
+
+describe("fixedUtcOffsetMinutes", () => {
+  it("parses Apple GMT-HHMM and UTC±HH:MM labels", () => {
+    expect(fixedUtcOffsetMinutes("GMT-0500")).toBe(-300);
+    expect(fixedUtcOffsetMinutes("GMT+0530")).toBe(330);
+    expect(fixedUtcOffsetMinutes("UTC-05:00")).toBe(-300);
+    expect(fixedUtcOffsetMinutes("+0530")).toBe(330);
+    expect(fixedUtcOffsetMinutes("GMT-5")).toBe(-300);
+  });
+
+  it("returns null for IANA names", () => {
+    expect(fixedUtcOffsetMinutes("America/Chicago")).toBeNull();
+    expect(fixedUtcOffsetMinutes("UTC")).toBeNull();
+  });
+});
 
 describe("zonedParts", () => {
   it("returns civil parts in the given timezone", () => {
@@ -46,6 +62,18 @@ describe("zonedLocalToUtc", () => {
   it("handles CDT (summer) offset", () => {
     const utc = zonedLocalToUtc(TZ, 2024, 7, 15, 12, 0, 0);
     expect(utc.toISOString()).toBe("2024-07-15T17:00:00.000Z");
+  });
+
+  it("accepts Apple GMT-0500 fixed offset without throwing", () => {
+    const utc = zonedLocalToUtc("GMT-0500", 2024, 6, 1, 15, 0, 0);
+    expect(utc.toISOString()).toBe("2024-06-01T20:00:00.000Z");
+    expect(zonedParts(utc, "GMT-0500")).toMatchObject({
+      year: 2024,
+      month: 6,
+      day: 1,
+      hour: 15,
+      minute: 0,
+    });
   });
 });
 

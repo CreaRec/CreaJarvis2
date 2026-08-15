@@ -1,4 +1,4 @@
-import { zonedLocalToUtc } from "../utils/time/index.js";
+import { zonedLocalToUtc, zonedParts } from "../utils/time/index.js";
 
 const DEFAULT_DURATION_MS = 30 * 60 * 1000;
 
@@ -35,19 +35,8 @@ function pad2(n: number): string {
 
 /** Format instant as floating local date-time for TZID (YYYYMMDDTHHMMSS). */
 export function formatIcsLocalDateTime(date: Date, timeZone: string): string {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(date);
-  const get = (type: string) =>
-    parts.find((p) => p.type === type)?.value ?? "00";
-  return `${get("year")}${get("month")}${get("day")}T${get("hour")}${get("minute")}${get("second")}`;
+  const p = zonedParts(date, timeZone);
+  return `${p.year}${pad2(p.month)}${pad2(p.day)}T${pad2(p.hour)}${pad2(p.minute)}${pad2(p.second)}`;
 }
 
 function formatIcsUtcStamp(date: Date): string {
