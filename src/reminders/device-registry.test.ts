@@ -16,19 +16,11 @@ const reminder: ReminderPublic = {
   text: "test",
   fire_at_iso: "2024-01-15T18:00:00.000Z",
   fire_at_local: "15.01.2024, 12:00:00",
-  status: "pending",
   recurrence: null,
   raw_utterance: null,
   timezone: "America/Chicago",
-  delivered_at: null,
   created_at: "2024-01-15T17:00:00.000Z",
-  calendar_uid: null,
-  has_calendar_event: false,
-  calendar_end_at_iso: null,
-  calendar_end_at_local: null,
-  location_name: null,
-  location_address: null,
-  location_maps_url: null,
+  apple_sync_status: "pending",
 };
 
 describe("DeviceRegistry", () => {

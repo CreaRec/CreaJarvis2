@@ -104,16 +104,7 @@ export class VoiceGateway {
   }
 
   private async flushMissed(): Promise<void> {
-    const missed = await this.deps.reminderStore.listMissed(50);
-    if (missed.length === 0) return;
-    const sent = this.deps.deviceRegistry.broadcast({
-      type: "reminder.missed_digest",
-      reminders: missed.map(toPublic),
-    });
-    if (sent === 0) return;
-    for (const r of missed) {
-      await this.deps.reminderStore.completeDelivery(r.id);
-    }
+    // Local reminder delivery is disabled; Apple Calendar owns alerts.
   }
 
   private async flushTodayPlan(): Promise<void> {

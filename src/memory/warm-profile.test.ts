@@ -83,8 +83,10 @@ describe("buildSessionInstructions", () => {
     });
     expect(text).toContain("Apple Calendar:");
     expect(text).toContain("calendar_create_event");
-    expect(text).toContain("offer_calendar");
+    expect(text).toContain("calendar_create_event directly");
+    expect(text).not.toContain("offer_calendar");
     expect(text).toContain("calendar_list");
     expect(text).toContain("alarm_minutes_before");
+    expect(text).toContain("apple_sync_status stays pending");
   });
 });

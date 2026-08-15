@@ -20,6 +20,7 @@ import { PlanStore, toItemPublic } from "../plans/store.js";
 import { DeviceRegistry } from "../reminders/device-registry.js";
 import { ReminderPoller } from "../reminders/poller.js";
 import { ReminderStore, toPublic } from "../reminders/store.js";
+import { EventStore } from "../events/store.js";
 import { DeviceStore, toPublic as toDevicePublic } from "../devices/store.js";
 import { ThemeStore } from "../themes/store.js";
 import { BraveClient } from "../search/brave-client.js";
@@ -115,6 +116,7 @@ async function main(): Promise<void> {
     embedder,
   });
   const reminderStore = new ReminderStore(prisma, embedder);
+  const eventStore = new EventStore(prisma);
   const planStore = new PlanStore(
     prisma,
     reminderStore,
@@ -169,15 +171,13 @@ async function main(): Promise<void> {
   for (const tool of createReminderTools({
     store: reminderStore,
     config,
-    calendarEnabled: iCloud.enabled,
-    calendar: calendarClient,
   })) {
     tools.register(tool);
   }
   if (calendarClient) {
     for (const tool of createCalendarTools({
       calendar: calendarClient,
-      store: reminderStore,
+      store: eventStore,
       config,
     })) {
       tools.register(tool);

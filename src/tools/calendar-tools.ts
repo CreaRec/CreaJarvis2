@@ -6,10 +6,13 @@ import type {
   ICloudCalendarClient,
 } from "../calendar/icloud-client.js";
 import { assembleEventDescription } from "../calendar/event-description.js";
-import { DEFAULT_ALARM_MINUTES_BEFORE } from "../calendar/ics.js";
+import {
+  DEFAULT_ALARM_MINUTES_BEFORE,
+  DEFAULT_EVENT_DURATION_MS,
+} from "../calendar/ics.js";
+import { toPublic, type EventStore } from "../events/store.js";
+import type { EventRecord } from "../events/types.js";
 import { formatLocal } from "../utils/time/index.js";
-import { toPublic, type ReminderStore } from "../reminders/store.js";
-import type { ReminderRecord } from "../reminders/types.js";
 import { logger, truncateForLog } from "../log.js";
 import { type ToolDefinition, z } from "./gateway.js";
 
@@ -69,12 +72,10 @@ function publicOptionalDateTimes(
   };
 }
 
-function eventDurationMs(reminder: ReminderRecord): number {
-  if (reminder.calendarEndAt) {
-    const ms = reminder.calendarEndAt.getTime() - reminder.fireAt.getTime();
-    if (ms > 0) return ms;
-  }
-  return 30 * 60 * 1000;
+function eventDurationMs(event: EventRecord): number {
+  const ms = event.endAt.getTime() - event.startAt.getTime();
+  if (ms > 0) return ms;
+  return DEFAULT_EVENT_DURATION_MS;
 }
 
 export function icsLocationFromFields(opts: {
@@ -104,21 +105,15 @@ export function geoFromFields(opts: {
   return undefined;
 }
 
-function locationChanged(
-  before: ReminderRecord,
-  after: ReminderRecord,
-): boolean {
-  return (
-    before.locationName !== after.locationName ||
-    before.locationAddress !== after.locationAddress ||
-    before.locationMapsUrl !== after.locationMapsUrl ||
-    before.locationLat !== after.locationLat ||
-    before.locationLon !== after.locationLon
-  );
-}
-
-function eventInputFromReminder(
-  reminder: ReminderRecord,
+function eventInputFromRecord(
+  event: Pick<
+    EventRecord,
+    | "locationName"
+    | "locationAddress"
+    | "locationMapsUrl"
+    | "locationLat"
+    | "locationLon"
+  >,
   opts: {
     uid: string;
     title: string;
@@ -135,11 +130,11 @@ function eventInputFromReminder(
     start: opts.start,
     end: opts.end,
     timeZone: opts.timeZone,
-    location: icsLocationFromFields(reminder),
-    geo: geoFromFields(reminder),
+    location: icsLocationFromFields(event),
+    geo: geoFromFields(event),
     description: assembleEventDescription({
       notes: opts.notes,
-      mapsUrl: reminder.locationMapsUrl,
+      mapsUrl: event.locationMapsUrl,
     }),
   };
   if (opts.alarmMinutesBefore !== undefined) {
@@ -165,10 +160,17 @@ type LocationToolInput = {
 };
 
 function resolveLocation(
-  reminder: ReminderRecord,
+  current: Pick<
+    EventRecord,
+    | "locationName"
+    | "locationAddress"
+    | "locationMapsUrl"
+    | "locationLat"
+    | "locationLon"
+  >,
   input: LocationToolInput,
 ): Pick<
-  ReminderRecord,
+  EventRecord,
   | "locationName"
   | "locationAddress"
   | "locationMapsUrl"
@@ -179,23 +181,23 @@ function resolveLocation(
     locationName:
       input.location_name !== undefined
         ? input.location_name
-        : reminder.locationName,
+        : current.locationName,
     locationAddress:
       input.location_address !== undefined
         ? input.location_address
-        : reminder.locationAddress,
+        : current.locationAddress,
     locationMapsUrl:
       input.location_maps_url !== undefined
         ? input.location_maps_url
-        : reminder.locationMapsUrl,
+        : current.locationMapsUrl,
     locationLat:
       input.location_lat !== undefined
         ? input.location_lat
-        : reminder.locationLat,
+        : current.locationLat,
     locationLon:
       input.location_lon !== undefined
         ? input.location_lon
-        : reminder.locationLon,
+        : current.locationLon,
   };
 }
 
@@ -228,61 +230,18 @@ function locationPatchFromResolved(
   return patch;
 }
 
-export async function deleteLinkedCalendarEvent(opts: {
-  calendar: ICloudCalendarClient;
-  store: ReminderStore;
-  reminder: ReminderRecord;
-}): Promise<{ deleted: boolean; error?: string }> {
-  if (!opts.reminder.calendarHref) {
-    return { deleted: false };
-  }
-  const result = await opts.calendar.deleteEvent(opts.reminder.calendarHref);
-  if (!result.ok) {
-    return { deleted: false, error: result.error };
-  }
-  await opts.store.clearCalendarLink(opts.reminder.id);
-  return { deleted: true };
-}
-
-export async function syncCalendarAfterReminderUpdate(opts: {
-  calendar: ICloudCalendarClient;
-  store: ReminderStore;
-  before: ReminderRecord;
-  after: ReminderRecord;
-  timeZone: string;
-}): Promise<{ ok: true } | { ok: false; error: string }> {
-  if (!opts.before.calendarHref || !opts.before.calendarUid) {
-    return { ok: true };
-  }
-  const textChanged = opts.before.text !== opts.after.text;
-  const timeChanged =
-    opts.before.fireAt.getTime() !== opts.after.fireAt.getTime();
-  const locChanged = locationChanged(opts.before, opts.after);
-  if (!textChanged && !timeChanged && !locChanged) {
-    return { ok: true };
-  }
-  const duration = eventDurationMs(opts.before);
-  const end = new Date(opts.after.fireAt.getTime() + duration);
-  const updated = await opts.calendar.updateEvent(
-    opts.before.calendarHref,
-    eventInputFromReminder(opts.after, {
-      uid: opts.before.calendarUid,
-      title: opts.after.text,
-      start: opts.after.fireAt,
-      end,
-      timeZone: opts.timeZone,
-    }),
-  );
-  if (!updated.ok) {
-    return { ok: false, error: updated.error };
-  }
-  await opts.store.update(opts.after.id, { calendarEndAt: end });
-  return { ok: true };
+async function resolveEvent(
+  store: EventStore,
+  opts: { event_id?: string; event_uid?: string },
+): Promise<EventRecord | null> {
+  if (opts.event_id) return store.getById(opts.event_id);
+  if (opts.event_uid) return store.getByUid(opts.event_uid);
+  return null;
 }
 
 export function createCalendarTools(deps: {
   calendar: ICloudCalendarClient;
-  store: ReminderStore;
+  store: EventStore;
   config: AppConfig;
 }): ToolDefinition[] {
   const tz = () => deps.config.USER_TIMEZONE;
@@ -291,18 +250,14 @@ export function createCalendarTools(deps: {
     {
       name: "calendar_create_event",
       description:
-        "Create an Apple Calendar event linked to an existing reminder. Always call reminder_create first, then pass its reminder_id. Default duration 30 minutes; default alarms at 1h and 15m before start (override with alarm_minutes_before: [] to clear, [30] for custom, etc.). Location fields default from the reminder (places_search → reminder_create). Result includes start_iso/end_iso and start_local/end_local — speak local fields only.",
+        "Create an Apple Calendar event (standalone). Default duration 30 minutes; default alarms at 1h and 15m before start (override with alarm_minutes_before: [] to clear, [30] for custom, etc.). Pass location from places_search when the user names a venue. Result includes start_iso/end_iso and start_local/end_local — speak local fields only. Does not create or link a reminder.",
       parameters: {
         type: "object",
         properties: {
-          reminder_id: {
-            type: "string",
-            description: "UUID of the reminder to link",
-          },
           title: { type: "string", description: "Event title" },
           start: {
             type: "string",
-            description: "Event start ISO-8601 (usually same as reminder fire_at)",
+            description: "Event start ISO-8601",
           },
           end: {
             type: "string",
@@ -317,15 +272,15 @@ export function createCalendarTools(deps: {
           },
           location_name: {
             type: "string",
-            description: "Place name; defaults to reminder",
+            description: "Place name from places_search",
           },
           location_address: {
             type: "string",
-            description: "Address for Apple Calendar LOCATION; defaults to reminder",
+            description: "Address for Apple Calendar LOCATION",
           },
           location_maps_url: {
             type: "string",
-            description: "Google Maps URL for DESCRIPTION; defaults to reminder",
+            description: "Google Maps URL for DESCRIPTION",
           },
           location_lat: { type: "number" },
           location_lon: { type: "number" },
@@ -334,11 +289,10 @@ export function createCalendarTools(deps: {
             description: "Original user phrase",
           },
         },
-        required: ["reminder_id", "title", "start"],
+        required: ["title", "start"],
       },
       handler: async (raw) => {
         const schema = z.object({
-          reminder_id: z.string().uuid(),
           title: z.string().min(1),
           start: z.string().min(1),
           end: z.string().optional(),
@@ -351,73 +305,107 @@ export function createCalendarTools(deps: {
         if (!parsed.success) {
           return { ok: false, error: parsed.error.message };
         }
-        const reminder = await deps.store.getById(parsed.data.reminder_id);
-        if (!reminder) {
-          return { ok: false, error: "Reminder not found" };
-        }
-        if (reminder.status === "cancelled") {
-          return { ok: false, error: "Reminder is cancelled" };
-        }
-        if (reminder.calendarUid) {
-          return {
-            ok: false,
-            error: "Reminder already linked to a calendar event",
-          };
-        }
         const start = parseIso(parsed.data.start);
         if (!start) {
           return { ok: false, error: "Invalid start ISO timestamp" };
         }
-        let end: Date | undefined;
+        let end: Date;
         if (parsed.data.end) {
           const e = parseIso(parsed.data.end);
           if (!e) return { ok: false, error: "Invalid end ISO timestamp" };
+          if (e.getTime() <= start.getTime()) {
+            return { ok: false, error: "end must be after start" };
+          }
           end = e;
+        } else {
+          end = new Date(start.getTime() + DEFAULT_EVENT_DURATION_MS);
         }
-        const loc = resolveLocation(reminder, parsed.data);
-        const withLoc: ReminderRecord = { ...reminder, ...loc };
+
+        const loc = resolveLocation(
+          {
+            locationName: null,
+            locationAddress: null,
+            locationMapsUrl: null,
+            locationLat: null,
+            locationLon: null,
+          },
+          parsed.data,
+        );
+        const alarms = alarmMinutesFromToolParam(
+          parsed.data.alarm_minutes_before,
+        );
+        const resolvedAlarms =
+          alarms === undefined ? [...DEFAULT_ALARM_MINUTES_BEFORE] : alarms;
         const uid = randomUUID();
         const created = await deps.calendar.createEvent(
-          eventInputFromReminder(withLoc, {
+          eventInputFromRecord(loc, {
             uid,
             title: parsed.data.title,
             start,
-            end: end ?? new Date(start.getTime() + 30 * 60 * 1000),
+            end,
             timeZone: tz(),
             notes: parsed.data.notes,
-            alarmMinutesBefore: alarmMinutesFromToolParam(
-              parsed.data.alarm_minutes_before,
-            ),
+            alarmMinutesBefore: resolvedAlarms,
           }),
         );
         if (!created.ok) {
+          logger.warn("[calendar] create failed", {
+            component: "calendar",
+            handler: "tool",
+            step: "finish",
+            tool: "calendar_create_event",
+            result: "error",
+            error_message: truncateForLog(created.error),
+          });
           return { ok: false, error: created.error };
         }
-        const locPatch = locationPatchFromResolved(loc, parsed.data);
-        if (Object.keys(locPatch).length > 0) {
-          await deps.store.update(reminder.id, locPatch);
-        }
-        const linked = await deps.store.setCalendarLink(reminder.id, {
-          uid: created.data.uid,
-          href: created.data.href,
-          endAt: created.data.end,
-        });
-        if (!linked) {
+
+        let saved: EventRecord;
+        try {
+          saved = await deps.store.create({
+            uid: created.data.uid,
+            href: created.data.href,
+            title: parsed.data.title,
+            startAt: start,
+            endAt: created.data.end,
+            timezone: tz(),
+            notes: parsed.data.notes ?? null,
+            alarmMinutesBefore: resolvedAlarms,
+            locationName: loc.locationName,
+            locationAddress: loc.locationAddress,
+            locationMapsUrl: loc.locationMapsUrl,
+            locationLat: loc.locationLat,
+            locationLon: loc.locationLon,
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          logger.warn("[calendar] create DB failed; compensating delete", {
+            component: "calendar",
+            handler: "tool",
+            step: "finish",
+            tool: "calendar_create_event",
+            result: "error",
+            error_message: truncateForLog(message),
+          });
+          await deps.calendar.deleteEvent(created.data.href).catch(() => undefined);
           return {
             ok: false,
-            error: "Event created but failed to save calendar link on reminder",
+            error: `Event created in Apple Calendar but failed to save locally: ${message}`,
           };
         }
-        const refreshed = await deps.store.getById(reminder.id);
+
+        logger.info("[calendar] create", {
+          component: "calendar",
+          handler: "tool",
+          step: "finish",
+          tool: "calendar_create_event",
+          result: "success",
+        });
         return {
           ok: true,
           data: {
-            event_uid: created.data.uid,
-            reminder_id: reminder.id,
-            title: parsed.data.title,
-            ...publicDateTimes(start, created.data.end, tz()),
-            location: icsLocationFromFields(withLoc) ?? null,
-            reminder: toPublic(refreshed ?? linked),
+            ...toPublic(saved),
+            location: icsLocationFromFields(loc) ?? null,
           },
         };
       },
@@ -425,7 +413,7 @@ export function createCalendarTools(deps: {
     {
       name: "calendar_list",
       description:
-        "List Apple Calendar events in a time range. Default: now to +2 days. Each event includes start_iso/end_iso (machine) and start_local/end_local (speak these).",
+        "List Apple Calendar events in a time range. Default: now to +2 days. Each event includes start_iso/end_iso (machine) and start_local/end_local (speak these). Jarvis-managed events also include event_id when matched by UID.",
       parameters: {
         type: "object",
         properties: {
@@ -478,10 +466,10 @@ export function createCalendarTools(deps: {
           });
           return { ok: false, error: listed.error };
         }
-        const links = await deps.store.getByCalendarUids(
+        const local = await deps.store.getByUids(
           listed.data.events.map((e) => e.uid),
         );
-        const byUid = new Map(links.map((r) => [r.calendarUid!, r.id]));
+        const byUid = new Map(local.map((e) => [e.uid, e.id]));
         const timeZone = tz();
         const events = listed.data.events.map((e) => {
           const start = e.start ? parseIso(e.start) : null;
@@ -489,11 +477,11 @@ export function createCalendarTools(deps: {
           return {
             uid: e.uid,
             href: e.href,
+            event_id: byUid.get(e.uid) ?? null,
             title: e.title,
             notes: e.notes,
             location: e.location,
             geo: e.geo,
-            reminder_id: byUid.get(e.uid) ?? null,
             ...publicOptionalDateTimes(start, end, timeZone),
           };
         });
@@ -517,11 +505,11 @@ export function createCalendarTools(deps: {
     {
       name: "calendar_update_event",
       description:
-        "Update an Apple Calendar event by reminder_id or event_uid. Only pass fields you want to change — omitted fields (including duration) are preserved. May also update the linked reminder text/fire_at/location when those fields are set. Omit alarm_minutes_before to keep existing Apple alerts; pass [] to clear, null to restore default 1h+15m, or a custom minute list. Result includes start_iso/end_iso and start_local/end_local — speak local fields only.",
+        "Update an Apple Calendar event by event_id or event_uid. Only pass fields you want to change — omitted fields (including duration) are preserved. Omit alarm_minutes_before to keep existing Apple alerts; pass [] to clear, null to restore default 1h+15m, or a custom minute list. Result includes start_iso/end_iso and start_local/end_local — speak local fields only.",
       parameters: {
         type: "object",
         properties: {
-          reminder_id: { type: "string" },
+          event_id: { type: "string" },
           event_uid: { type: "string" },
           title: { type: "string" },
           start: { type: "string" },
@@ -543,7 +531,7 @@ export function createCalendarTools(deps: {
       handler: async (raw) => {
         const schema = z
           .object({
-            reminder_id: z.string().uuid().optional(),
+            event_id: z.string().uuid().optional(),
             event_uid: z.string().min(1).optional(),
             title: z.string().min(1).optional(),
             start: z.string().optional(),
@@ -552,24 +540,16 @@ export function createCalendarTools(deps: {
             alarm_minutes_before: alarmMinutesBeforeSchema,
             ...locationToolFields,
           })
-          .refine((v) => Boolean(v.reminder_id || v.event_uid), {
-            message: "Provide reminder_id or event_uid",
+          .refine((v) => Boolean(v.event_id || v.event_uid), {
+            message: "Provide event_id or event_uid",
           });
         const parsed = schema.safeParse(raw);
         if (!parsed.success) {
           return { ok: false, error: parsed.error.message };
         }
-        let reminder: ReminderRecord | null = null;
-        if (parsed.data.reminder_id) {
-          reminder = await deps.store.getById(parsed.data.reminder_id);
-        } else if (parsed.data.event_uid) {
-          reminder = await deps.store.getByCalendarUid(parsed.data.event_uid);
-        }
-        if (!reminder?.calendarUid || !reminder.calendarHref) {
-          return {
-            ok: false,
-            error: "No linked calendar event found for this id",
-          };
+        const event = await resolveEvent(deps.store, parsed.data);
+        if (!event) {
+          return { ok: false, error: "Calendar event not found" };
         }
 
         const locationInputProvided =
@@ -580,7 +560,7 @@ export function createCalendarTools(deps: {
           parsed.data.location_lon !== undefined;
 
         const patch: CalendarEventPatch = {
-          uid: reminder.calendarUid,
+          uid: event.uid,
           timeZone: tz(),
         };
 
@@ -588,7 +568,7 @@ export function createCalendarTools(deps: {
           patch.title = parsed.data.title;
         }
 
-        let start = reminder.fireAt;
+        let start = event.startAt;
         if (parsed.data.start !== undefined) {
           const d = parseIso(parsed.data.start);
           if (!d) return { ok: false, error: "Invalid start" };
@@ -599,16 +579,15 @@ export function createCalendarTools(deps: {
         if (parsed.data.end !== undefined) {
           const d = parseIso(parsed.data.end);
           if (!d) return { ok: false, error: "Invalid end" };
+          if (d.getTime() <= start.getTime()) {
+            return { ok: false, error: "end must be after start" };
+          }
           patch.end = d;
         } else if (parsed.data.start !== undefined) {
-          // Start moved without explicit end — keep prior duration from reminder.
-          const duration = eventDurationMs(reminder);
+          const duration = eventDurationMs(event);
           patch.end = new Date(start.getTime() + duration);
         }
 
-        // When rewriting VEVENT without an explicit start from the model, pin
-        // start (and end if needed) from the linked reminder so a prior bad
-        // TZID parse in CalDAV cannot shift the wall clock.
         const rewritingWithoutExplicitStart =
           parsed.data.start === undefined &&
           (locationInputProvided ||
@@ -616,16 +595,16 @@ export function createCalendarTools(deps: {
             parsed.data.notes !== undefined ||
             parsed.data.end !== undefined);
         if (rewritingWithoutExplicitStart) {
-          patch.start = reminder.fireAt;
+          patch.start = event.startAt;
           if (parsed.data.end === undefined) {
             patch.end = new Date(
-              reminder.fireAt.getTime() + eventDurationMs(reminder),
+              event.startAt.getTime() + eventDurationMs(event),
             );
           }
         }
 
         if (parsed.data.notes !== undefined) {
-          const locForNotes = resolveLocation(reminder, parsed.data);
+          const locForNotes = resolveLocation(event, parsed.data);
           patch.description = assembleEventDescription({
             notes: parsed.data.notes,
             mapsUrl: locForNotes.locationMapsUrl,
@@ -633,12 +612,10 @@ export function createCalendarTools(deps: {
         }
 
         if (locationInputProvided) {
-          const loc = resolveLocation(reminder, parsed.data);
+          const loc = resolveLocation(event, parsed.data);
           patch.location = icsLocationFromFields(loc);
           const geo = geoFromFields(loc);
           if (geo) patch.geo = geo;
-          // Location-only (no notes): merge Maps URL into existing DESCRIPTION.
-          // When notes were set above, description already includes mapsUrl.
           if (parsed.data.notes === undefined) {
             patch.mapsUrl = loc.locationMapsUrl ?? null;
           }
@@ -650,20 +627,26 @@ export function createCalendarTools(deps: {
           );
         }
 
-        const updated = await deps.calendar.updateEvent(
-          reminder.calendarHref,
-          patch,
-        );
+        const updated = await deps.calendar.updateEvent(event.href, patch);
         if (!updated.ok) {
+          logger.warn("[calendar] update failed", {
+            component: "calendar",
+            handler: "tool",
+            step: "finish",
+            tool: "calendar_update_event",
+            result: "error",
+            error_message: truncateForLog(updated.error),
+          });
           return { ok: false, error: updated.error };
         }
 
-        const loc = resolveLocation(reminder, parsed.data);
+        const loc = resolveLocation(event, parsed.data);
         const storePatch: {
-          text?: string;
-          fireAt?: Date;
-          calendarEndAt?: Date;
-          status?: "pending";
+          title?: string;
+          startAt?: Date;
+          endAt?: Date;
+          notes?: string | null;
+          alarmMinutesBefore?: number[] | null;
           locationName?: string | null;
           locationAddress?: string | null;
           locationMapsUrl?: string | null;
@@ -672,36 +655,37 @@ export function createCalendarTools(deps: {
         } = {
           ...locationPatchFromResolved(loc, parsed.data),
         };
-        if (parsed.data.title !== undefined) storePatch.text = parsed.data.title;
-        if (parsed.data.start !== undefined) {
-          storePatch.fireAt = start;
-          storePatch.status = "pending";
-        }
+        if (parsed.data.title !== undefined) storePatch.title = parsed.data.title;
+        if (parsed.data.start !== undefined) storePatch.startAt = start;
         if (
           parsed.data.start !== undefined ||
           parsed.data.end !== undefined
         ) {
-          storePatch.calendarEndAt = updated.data.end;
+          storePatch.endAt = updated.data.end;
+        }
+        if (parsed.data.notes !== undefined) {
+          storePatch.notes = parsed.data.notes;
+        }
+        if (parsed.data.alarm_minutes_before !== undefined) {
+          storePatch.alarmMinutesBefore =
+            alarmMinutesFromToolParam(parsed.data.alarm_minutes_before) ?? null;
         }
 
         const saved =
           Object.keys(storePatch).length > 0
-            ? await deps.store.update(reminder.id, storePatch)
-            : reminder;
-        const withLoc: ReminderRecord = { ...reminder, ...loc };
+            ? await deps.store.update(event.id, storePatch)
+            : event;
+        const withLoc = { ...event, ...loc };
         const resultStart =
-          parsed.data.start !== undefined ? start : reminder.fireAt;
+          parsed.data.start !== undefined ? start : event.startAt;
         return {
           ok: true,
           data: {
-            event_uid: reminder.calendarUid,
-            reminder_id: reminder.id,
-            title: parsed.data.title ?? reminder.text,
+            ...(saved ? toPublic(saved) : toPublic(event)),
             ...publicDateTimes(resultStart, updated.data.end, tz()),
             location: icsLocationFromFields(
-              locationInputProvided ? withLoc : reminder,
+              locationInputProvided ? withLoc : event,
             ) ?? null,
-            reminder: saved ? toPublic(saved) : toPublic(reminder),
           },
         };
       },
@@ -709,57 +693,50 @@ export function createCalendarTools(deps: {
     {
       name: "calendar_delete_event",
       description:
-        "Delete an Apple Calendar event by reminder_id or event_uid. Does not cancel the reminder — use reminder_cancel to cancel both.",
+        "Delete an Apple Calendar event by event_id or event_uid. Does not affect reminders.",
       parameters: {
         type: "object",
         properties: {
-          reminder_id: { type: "string" },
+          event_id: { type: "string" },
           event_uid: { type: "string" },
         },
       },
       handler: async (raw) => {
         const schema = z
           .object({
-            reminder_id: z.string().uuid().optional(),
+            event_id: z.string().uuid().optional(),
             event_uid: z.string().min(1).optional(),
           })
-          .refine((v) => Boolean(v.reminder_id || v.event_uid), {
-            message: "Provide reminder_id or event_uid",
+          .refine((v) => Boolean(v.event_id || v.event_uid), {
+            message: "Provide event_id or event_uid",
           });
         const parsed = schema.safeParse(raw);
         if (!parsed.success) {
           return { ok: false, error: parsed.error.message };
         }
-        let reminder: ReminderRecord | null = null;
-        if (parsed.data.reminder_id) {
-          reminder = await deps.store.getById(parsed.data.reminder_id);
-        } else if (parsed.data.event_uid) {
-          reminder = await deps.store.getByCalendarUid(parsed.data.event_uid);
+        const event = await resolveEvent(deps.store, parsed.data);
+        if (!event) {
+          return { ok: false, error: "Calendar event not found" };
         }
-        if (!reminder?.calendarHref) {
-          return {
-            ok: false,
-            error: "No linked calendar event found for this id",
-          };
+        const deleted = await deps.calendar.deleteEvent(event.href);
+        if (!deleted.ok) {
+          logger.warn("[calendar] delete failed", {
+            component: "calendar",
+            handler: "tool",
+            step: "finish",
+            tool: "calendar_delete_event",
+            result: "error",
+            error_message: truncateForLog(deleted.error),
+          });
+          return { ok: false, error: deleted.error };
         }
-        const deleted = await deleteLinkedCalendarEvent({
-          calendar: deps.calendar,
-          store: deps.store,
-          reminder,
-        });
-        if (!deleted.deleted) {
-          return {
-            ok: false,
-            error: deleted.error ?? "Failed to delete calendar event",
-          };
-        }
-        const refreshed = await deps.store.getById(reminder.id);
+        await deps.store.delete(event.id);
         return {
           ok: true,
           data: {
             deleted: true,
-            reminder_id: reminder.id,
-            reminder: refreshed ? toPublic(refreshed) : null,
+            event_id: event.id,
+            event_uid: event.uid,
           },
         };
       },

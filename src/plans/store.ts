@@ -298,7 +298,6 @@ export class PlanStore {
         await this.reminders.update(reminderId, {
           text: nextText,
           fireAt: nextScheduled,
-          status: "pending",
         });
       } else {
         reminderId = await this.createLinkedReminder(
@@ -393,7 +392,6 @@ export class PlanStore {
       if (reminderId) {
         await this.reminders.update(reminderId, {
           fireAt: nextScheduled,
-          status: "pending",
         });
       } else {
         reminderId = await this.createLinkedReminder(

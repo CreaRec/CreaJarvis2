@@ -1,11 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppConfig } from "../config.js";
 import type { ICloudCalendarClient } from "../calendar/icloud-client.js";
-import type { ReminderRecord } from "../reminders/types.js";
-import type { ReminderStore } from "../reminders/store.js";
+import type { EventRecord } from "../events/types.js";
+import type { EventStore } from "../events/store.js";
 import { ToolGateway } from "./gateway.js";
 import { createCalendarTools } from "./calendar-tools.js";
-import { createReminderTools } from "./reminder-tools.js";
 import { logger } from "../log.js";
 
 function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
@@ -48,25 +47,20 @@ function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   };
 }
 
-const REM_ID = "00000000-0000-4000-8000-000000000001";
+const EVENT_ID = "00000000-0000-4000-8000-0000000000aa";
 
-function makeRecord(
-  overrides: Partial<ReminderRecord> = {},
-): ReminderRecord {
+function makeEvent(overrides: Partial<EventRecord> = {}): EventRecord {
   const now = new Date("2024-01-15T18:00:00.000Z");
   return {
-    id: REM_ID,
-    text: "dentist",
-    fireAt: new Date("2024-01-16T16:00:00.000Z"),
+    id: EVENT_ID,
+    uid: "uid-1",
+    href: "https://caldav.example/uid-1.ics",
+    title: "dentist",
+    startAt: new Date("2024-01-16T16:00:00.000Z"),
+    endAt: new Date("2024-01-16T16:30:00.000Z"),
     timezone: "America/Chicago",
-    status: "pending",
-    rawUtterance: null,
-    recurrence: null,
-    quietHoursOverride: null,
-    deliveredAt: null,
-    calendarUid: null,
-    calendarHref: null,
-    calendarEndAt: null,
+    notes: null,
+    alarmMinutesBefore: [60, 15],
     locationName: null,
     locationAddress: null,
     locationMapsUrl: null,
@@ -90,24 +84,32 @@ function makeCalendar(
   };
 }
 
-function makeStore(
-  overrides: Partial<ReminderStore> = {},
-): ReminderStore {
+function makeStore(overrides: Partial<EventStore> = {}): EventStore {
   return {
     create: vi.fn(),
     getById: vi.fn(),
-    getByCalendarUid: vi.fn(),
-    getByCalendarUids: vi.fn(),
-    setCalendarLink: vi.fn(),
-    clearCalendarLink: vi.fn(),
+    getByUid: vi.fn(),
+    getByUids: vi.fn().mockResolvedValue([]),
     update: vi.fn(),
-    cancel: vi.fn(),
+    delete: vi.fn(),
     list: vi.fn(),
-    search: vi.fn(),
-    cancelMany: vi.fn(),
-    listForCancelMany: vi.fn(),
     ...overrides,
-  } as unknown as ReminderStore;
+  } as unknown as EventStore;
+}
+
+function gatewayWith(
+  calendar: ICloudCalendarClient,
+  store: EventStore,
+): ToolGateway {
+  const gw = new ToolGateway();
+  for (const tool of createCalendarTools({
+    calendar,
+    store,
+    config: makeConfig(),
+  })) {
+    gw.register(tool);
+  }
+  return gw;
 }
 
 describe("createCalendarTools", () => {
@@ -115,16 +117,10 @@ describe("createCalendarTools", () => {
     vi.useRealTimers();
   });
 
-  it("creates event and stores calendar link", async () => {
-    const reminder = makeRecord();
-    const linked = makeRecord({
-      calendarUid: "uid-1",
-      calendarHref: "https://caldav.example/uid-1.ics",
-      calendarEndAt: new Date("2024-01-16T16:30:00.000Z"),
-    });
+  it("creates standalone event in CalDAV and EventStore", async () => {
+    const saved = makeEvent();
     const store = makeStore({
-      getById: vi.fn().mockResolvedValue(reminder),
-      setCalendarLink: vi.fn().mockResolvedValue(linked),
+      create: vi.fn().mockResolvedValue(saved),
     });
     const calendar = makeCalendar({
       createEvent: vi.fn().mockResolvedValue({
@@ -136,63 +132,49 @@ describe("createCalendarTools", () => {
         },
       }),
     });
-    const gw = new ToolGateway();
-    for (const tool of createCalendarTools({
-      calendar,
-      store,
-      config: makeConfig(),
-    })) {
-      gw.register(tool);
-    }
+    const gw = gatewayWith(calendar, store);
     const result = await gw.execute("calendar_create_event", {
-      reminder_id: REM_ID,
       title: "dentist",
       start: "2024-01-16T16:00:00.000Z",
     });
     expect(result.ok).toBe(true);
     if (result.ok) {
       const data = result.data as {
+        id: string;
+        event_uid: string;
         start_iso: string;
         end_iso: string;
         start_local: string;
         end_local: string;
       };
+      expect(data.id).toBe(EVENT_ID);
+      expect(data.event_uid).toBe("uid-1");
       expect(data.start_iso).toBe("2024-01-16T16:00:00.000Z");
       expect(data.end_iso).toBe("2024-01-16T16:30:00.000Z");
       expect(data.start_local).toBeTruthy();
       expect(data.end_local).toBeTruthy();
+      expect(data).not.toHaveProperty("reminder_id");
     }
     expect(calendar.createEvent).toHaveBeenCalled();
-    expect(store.setCalendarLink).toHaveBeenCalledWith(
-      REM_ID,
+    expect(store.create).toHaveBeenCalledWith(
       expect.objectContaining({
         uid: "uid-1",
-        href: "https://caldav.example/uid-1.ics",
+        title: "dentist",
       }),
     );
   });
 
-  it("passes reminder location into createEvent and persists overrides", async () => {
-    const reminder = makeRecord({
-      locationName: "Starbucks",
-      locationAddress: "123 Lamar Blvd, Austin, TX",
-      locationMapsUrl: "https://maps.google.com/?cid=1",
-      locationLat: 30.27,
-      locationLon: -97.74,
-    });
-    const linked = makeRecord({
-      ...reminder,
-      calendarUid: "uid-loc",
-      calendarHref: "https://caldav.example/uid-loc.ics",
-      calendarEndAt: new Date("2024-01-16T16:30:00.000Z"),
-    });
+  it("passes location into createEvent", async () => {
     const store = makeStore({
-      getById: vi
-        .fn()
-        .mockResolvedValueOnce(reminder)
-        .mockResolvedValue(linked),
-      update: vi.fn().mockResolvedValue(linked),
-      setCalendarLink: vi.fn().mockResolvedValue(linked),
+      create: vi.fn().mockResolvedValue(
+        makeEvent({
+          locationName: "Starbucks",
+          locationAddress: "123 Lamar Blvd, Austin, TX",
+          locationMapsUrl: "https://maps.google.com/?cid=1",
+          locationLat: 30.27,
+          locationLon: -97.74,
+        }),
+      ),
     });
     const calendar = makeCalendar({
       createEvent: vi.fn().mockResolvedValue({
@@ -204,18 +186,15 @@ describe("createCalendarTools", () => {
         },
       }),
     });
-    const gw = new ToolGateway();
-    for (const tool of createCalendarTools({
-      calendar,
-      store,
-      config: makeConfig(),
-    })) {
-      gw.register(tool);
-    }
+    const gw = gatewayWith(calendar, store);
     const result = await gw.execute("calendar_create_event", {
-      reminder_id: REM_ID,
       title: "Coffee",
       start: "2024-01-16T16:00:00.000Z",
+      location_name: "Starbucks",
+      location_address: "123 Lamar Blvd, Austin, TX",
+      location_maps_url: "https://maps.google.com/?cid=1",
+      location_lat: 30.27,
+      location_lon: -97.74,
     });
     expect(result.ok).toBe(true);
     expect(calendar.createEvent).toHaveBeenCalledWith(
@@ -227,40 +206,35 @@ describe("createCalendarTools", () => {
     );
   });
 
-  it("rejects create when already linked", async () => {
+  it("compensates with CalDAV delete when DB create fails", async () => {
     const store = makeStore({
-      getById: vi.fn().mockResolvedValue(
-        makeRecord({ calendarUid: "existing" }),
-      ),
+      create: vi.fn().mockRejectedValue(new Error("db down")),
     });
-    const calendar = makeCalendar();
-    const gw = new ToolGateway();
-    for (const tool of createCalendarTools({
-      calendar,
-      store,
-      config: makeConfig(),
-    })) {
-      gw.register(tool);
-    }
+    const calendar = makeCalendar({
+      createEvent: vi.fn().mockResolvedValue({
+        ok: true,
+        data: {
+          uid: "uid-orphan",
+          href: "https://caldav.example/uid-orphan.ics",
+          end: new Date("2024-01-16T16:30:00.000Z"),
+        },
+      }),
+      deleteEvent: vi.fn().mockResolvedValue({ ok: true, data: { deleted: true } }),
+    });
+    const gw = gatewayWith(calendar, store);
     const result = await gw.execute("calendar_create_event", {
-      reminder_id: REM_ID,
       title: "x",
       start: "2024-01-16T16:00:00.000Z",
     });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toMatch(/already linked/i);
-    expect(calendar.createEvent).not.toHaveBeenCalled();
+    expect(calendar.deleteEvent).toHaveBeenCalledWith(
+      "https://caldav.example/uid-orphan.ics",
+    );
   });
 
-  it("enriches list with reminder_id", async () => {
-    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => undefined);
+  it("lists CalDAV events and attaches event_id for local matches", async () => {
     const store = makeStore({
-      getByCalendarUids: vi.fn().mockResolvedValue([
-        makeRecord({
-          calendarUid: "uid-a",
-          calendarHref: "https://x/a.ics",
-        }),
-      ]),
+      getByUids: vi.fn().mockResolvedValue([makeEvent()]),
     });
     const calendar = makeCalendar({
       listEvents: vi.fn().mockResolvedValue({
@@ -268,9 +242,9 @@ describe("createCalendarTools", () => {
         data: {
           events: [
             {
-              uid: "uid-a",
-              href: "https://x/a.ics",
-              title: "A",
+              uid: "uid-1",
+              href: "https://caldav.example/uid-1.ics",
+              title: "dentist",
               start: "2024-01-16T16:00:00.000Z",
               end: "2024-01-16T16:30:00.000Z",
               notes: null,
@@ -278,11 +252,11 @@ describe("createCalendarTools", () => {
               geo: null,
             },
             {
-              uid: "uid-b",
-              href: "https://x/b.ics",
-              title: "B",
+              uid: "foreign",
+              href: "https://caldav.example/foreign.ics",
+              title: "other",
               start: "2024-01-16T18:00:00.000Z",
-              end: "2024-01-16T18:30:00.000Z",
+              end: "2024-01-16T19:00:00.000Z",
               notes: null,
               location: null,
               geo: null,
@@ -291,609 +265,108 @@ describe("createCalendarTools", () => {
         },
       }),
     });
-    const gw = new ToolGateway();
-    for (const tool of createCalendarTools({
-      calendar,
-      store,
-      config: makeConfig(),
-    })) {
-      gw.register(tool);
-    }
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => undefined);
+    const gw = gatewayWith(calendar, store);
     const result = await gw.execute("calendar_list", {});
     expect(result.ok).toBe(true);
     if (result.ok) {
-      const data = result.data as {
-        events: Array<{
-          uid: string;
-          reminder_id: string | null;
-          start_iso: string | null;
-          end_iso: string | null;
-          start_local: string | null;
-          end_local: string | null;
-        }>;
-      };
-      expect(data.events[0]?.reminder_id).toBe(REM_ID);
-      expect(data.events[1]?.reminder_id).toBeNull();
-      expect(data.events[0]?.start_iso).toBe("2024-01-16T16:00:00.000Z");
-      expect(data.events[0]?.end_iso).toBe("2024-01-16T16:30:00.000Z");
-      expect(data.events[0]?.start_local).toBeTruthy();
-      expect(data.events[0]?.end_local).toBeTruthy();
-      expect(data.events[0]?.start_local).not.toMatch(/Z$/);
+      const events = (result.data as { events: Array<{ uid: string; event_id: string | null }> })
+        .events;
+      expect(events[0]?.event_id).toBe(EVENT_ID);
+      expect(events[1]?.event_id).toBeNull();
+      expect(events[0]).not.toHaveProperty("reminder_id");
     }
-    expect(infoSpy).toHaveBeenCalledWith(
-      "[calendar] list",
-      expect.objectContaining({
-        component: "calendar",
-        handler: "tool",
-        step: "finish",
-        tool: "calendar_list",
-        result: "success",
-        count: 2,
-        from_defaulted: true,
-        to_defaulted: true,
-        limit: 30,
-      }),
-    );
     infoSpy.mockRestore();
   });
 
-  it("logs calendar_list CalDAV failures with resolved range", async () => {
-    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
-    const calendar = makeCalendar({
-      listEvents: vi.fn().mockResolvedValue({
-        ok: false,
-        error: "CalDAV timeout",
-      }),
-    });
-    const gw = new ToolGateway();
-    for (const tool of createCalendarTools({
-      calendar,
-      store: makeStore(),
-      config: makeConfig(),
-    })) {
-      gw.register(tool);
-    }
-    const result = await gw.execute("calendar_list", {
-      from: "2026-08-01T00:00:00.000Z",
-      to: "2026-09-01T00:00:00.000Z",
-    });
-    expect(result.ok).toBe(false);
-    expect(warnSpy).toHaveBeenCalledWith(
-      "[calendar] list failed",
-      expect.objectContaining({
-        tool: "calendar_list",
-        result: "error",
-        from: "2026-08-01T00:00:00.000Z",
-        to: "2026-09-01T00:00:00.000Z",
-        from_defaulted: false,
-        to_defaulted: false,
-        error_message: "CalDAV timeout",
-      }),
-    );
-    warnSpy.mockRestore();
-  });
-
-  it("deletes by reminder_id and clears link", async () => {
-    const linked = makeRecord({
-      calendarUid: "uid-1",
-      calendarHref: "https://x/uid-1.ics",
-      calendarEndAt: new Date("2024-01-16T16:30:00.000Z"),
-    });
-    const cleared = makeRecord();
-    const store = makeStore({
-      getById: vi
-        .fn()
-        .mockResolvedValueOnce(linked)
-        .mockResolvedValueOnce(cleared),
-      clearCalendarLink: vi.fn().mockResolvedValue(cleared),
-    });
-    const calendar = makeCalendar({
-      deleteEvent: vi.fn().mockResolvedValue({ ok: true, data: { deleted: true } }),
-    });
-    const gw = new ToolGateway();
-    for (const tool of createCalendarTools({
-      calendar,
-      store,
-      config: makeConfig(),
-    })) {
-      gw.register(tool);
-    }
-    const result = await gw.execute("calendar_delete_event", {
-      reminder_id: REM_ID,
-    });
-    expect(result.ok).toBe(true);
-    expect(calendar.deleteEvent).toHaveBeenCalledWith("https://x/uid-1.ics");
-    expect(store.clearCalendarLink).toHaveBeenCalledWith(REM_ID);
-    expect(store.cancel).not.toHaveBeenCalled();
-  });
-
   it("updates event by event_uid", async () => {
-    const linked = makeRecord({
-      calendarUid: "uid-1",
-      calendarHref: "https://x/uid-1.ics",
-      calendarEndAt: new Date("2024-01-16T16:30:00.000Z"),
+    const event = makeEvent();
+    const updated = makeEvent({
+      title: "dentist 2",
+      endAt: new Date("2024-01-16T17:30:00.000Z"),
     });
     const store = makeStore({
-      getByCalendarUid: vi.fn().mockResolvedValue(linked),
-      update: vi.fn().mockResolvedValue(
-        makeRecord({
-          ...linked,
-          text: "new title",
-          fireAt: new Date("2024-01-16T17:00:00.000Z"),
-          calendarEndAt: new Date("2024-01-16T17:30:00.000Z"),
-        }),
-      ),
+      getByUid: vi.fn().mockResolvedValue(event),
+      update: vi.fn().mockResolvedValue(updated),
     });
     const calendar = makeCalendar({
       updateEvent: vi.fn().mockResolvedValue({
         ok: true,
         data: {
           uid: "uid-1",
-          href: "https://x/uid-1.ics",
+          href: event.href,
           end: new Date("2024-01-16T17:30:00.000Z"),
         },
       }),
     });
-    const gw = new ToolGateway();
-    for (const tool of createCalendarTools({
-      calendar,
-      store,
-      config: makeConfig(),
-    })) {
-      gw.register(tool);
-    }
+    const gw = gatewayWith(calendar, store);
     const result = await gw.execute("calendar_update_event", {
       event_uid: "uid-1",
-      title: "new title",
-      start: "2024-01-16T17:00:00.000Z",
+      title: "dentist 2",
+      end: "2024-01-16T17:30:00.000Z",
+    });
+    expect(result.ok).toBe(true);
+    expect(calendar.updateEvent).toHaveBeenCalled();
+    expect(store.update).toHaveBeenCalledWith(
+      EVENT_ID,
+      expect.objectContaining({
+        title: "dentist 2",
+        endAt: new Date("2024-01-16T17:30:00.000Z"),
+      }),
+    );
+  });
+
+  it("deletes CalDAV then EventStore row", async () => {
+    const event = makeEvent();
+    const store = makeStore({
+      getById: vi.fn().mockResolvedValue(event),
+      delete: vi.fn().mockResolvedValue(event),
+    });
+    const calendar = makeCalendar({
+      deleteEvent: vi
+        .fn()
+        .mockResolvedValue({ ok: true, data: { deleted: true } }),
+    });
+    const gw = gatewayWith(calendar, store);
+    const result = await gw.execute("calendar_delete_event", {
+      event_id: EVENT_ID,
+    });
+    expect(result.ok).toBe(true);
+    expect(calendar.deleteEvent).toHaveBeenCalledWith(event.href);
+    expect(store.delete).toHaveBeenCalledWith(EVENT_ID);
+    if (result.ok) {
+      expect(result.data).toMatchObject({
+        deleted: true,
+        event_id: EVENT_ID,
+        event_uid: "uid-1",
+      });
+    }
+  });
+
+  it("alarm-only update does not require start/end", async () => {
+    const event = makeEvent();
+    const store = makeStore({
+      getById: vi.fn().mockResolvedValue(event),
+      update: vi.fn().mockResolvedValue({
+        ...event,
+        alarmMinutesBefore: [30],
+      }),
+    });
+    const calendar = makeCalendar({
+      updateEvent: vi.fn().mockResolvedValue({
+        ok: true,
+        data: { uid: event.uid, href: event.href, end: event.endAt },
+      }),
+    });
+    const gw = gatewayWith(calendar, store);
+    const result = await gw.execute("calendar_update_event", {
+      event_id: EVENT_ID,
+      alarm_minutes_before: [30],
     });
     expect(result.ok).toBe(true);
     expect(calendar.updateEvent).toHaveBeenCalledWith(
-      "https://x/uid-1.ics",
-      expect.objectContaining({
-        uid: "uid-1",
-        title: "new title",
-        start: new Date("2024-01-16T17:00:00.000Z"),
-        end: new Date("2024-01-16T17:30:00.000Z"),
-      }),
-    );
-    expect(store.update).toHaveBeenCalledWith(
-      REM_ID,
-      expect.objectContaining({
-        text: "new title",
-        fireAt: new Date("2024-01-16T17:00:00.000Z"),
-      }),
-    );
-  });
-
-  it("alarm-only update passes only alarmMinutesBefore and skips store duration patch", async () => {
-    const linked = makeRecord({
-      calendarUid: "uid-1",
-      calendarHref: "https://x/uid-1.ics",
-      calendarEndAt: new Date("2024-01-16T18:00:00.000Z"),
-    });
-    const store = makeStore({
-      getById: vi.fn().mockResolvedValue(linked),
-      update: vi.fn(),
-    });
-    const updateEvent = vi.fn().mockResolvedValue({
-      ok: true,
-      data: {
-        uid: "uid-1",
-        href: "https://x/uid-1.ics",
-        end: new Date("2024-01-16T18:00:00.000Z"),
-      },
-    });
-    const calendar = makeCalendar({ updateEvent });
-    const gw = new ToolGateway();
-    for (const tool of createCalendarTools({
-      calendar,
-      store,
-      config: makeConfig(),
-    })) {
-      gw.register(tool);
-    }
-    const result = await gw.execute("calendar_update_event", {
-      reminder_id: REM_ID,
-      alarm_minutes_before: [30],
-    });
-    expect(result.ok).toBe(true);
-    expect(updateEvent).toHaveBeenCalledWith("https://x/uid-1.ics", {
-      uid: "uid-1",
-      timeZone: "America/Chicago",
-      alarmMinutesBefore: [30],
-    });
-    expect(store.update).not.toHaveBeenCalled();
-  });
-
-  it("location-only update pins start/end from reminder fireAt", async () => {
-    const linked = makeRecord({
-      calendarUid: "uid-1",
-      calendarHref: "https://x/uid-1.ics",
-      fireAt: new Date("2026-08-24T14:00:00.000Z"),
-      calendarEndAt: new Date("2026-08-24T14:30:00.000Z"),
-    });
-    const store = makeStore({
-      getById: vi.fn().mockResolvedValue(linked),
-      update: vi.fn().mockResolvedValue(linked),
-    });
-    const updateEvent = vi.fn().mockResolvedValue({
-      ok: true,
-      data: {
-        uid: "uid-1",
-        href: "https://x/uid-1.ics",
-        end: new Date("2026-08-24T14:30:00.000Z"),
-      },
-    });
-    const calendar = makeCalendar({ updateEvent });
-    const gw = new ToolGateway();
-    for (const tool of createCalendarTools({
-      calendar,
-      store,
-      config: makeConfig(),
-    })) {
-      gw.register(tool);
-    }
-    const result = await gw.execute("calendar_update_event", {
-      reminder_id: REM_ID,
-      location_name: "Clinic",
-      location_address: "1 Main St",
-    });
-    expect(result.ok).toBe(true);
-    expect(updateEvent).toHaveBeenCalledWith(
-      "https://x/uid-1.ics",
-      expect.objectContaining({
-        start: new Date("2026-08-24T14:00:00.000Z"),
-        end: new Date("2026-08-24T14:30:00.000Z"),
-        location: "1 Main St",
-        mapsUrl: null,
-      }),
-    );
-  });
-
-  it("location update with maps URL passes mapsUrl for DESCRIPTION merge", async () => {
-    const linked = makeRecord({
-      calendarUid: "uid-1",
-      calendarHref: "https://x/uid-1.ics",
-      fireAt: new Date("2026-08-24T14:00:00.000Z"),
-      calendarEndAt: new Date("2026-08-24T14:30:00.000Z"),
-    });
-    const store = makeStore({
-      getById: vi.fn().mockResolvedValue(linked),
-      update: vi.fn().mockResolvedValue(linked),
-    });
-    const updateEvent = vi.fn().mockResolvedValue({
-      ok: true,
-      data: {
-        uid: "uid-1",
-        href: "https://x/uid-1.ics",
-        end: new Date("2026-08-24T14:30:00.000Z"),
-      },
-    });
-    const calendar = makeCalendar({ updateEvent });
-    const gw = new ToolGateway();
-    for (const tool of createCalendarTools({
-      calendar,
-      store,
-      config: makeConfig(),
-    })) {
-      gw.register(tool);
-    }
-    const maps = "https://maps.google.com/?cid=537976887965764502";
-    const result = await gw.execute("calendar_update_event", {
-      reminder_id: REM_ID,
-      location_name: "Clinic",
-      location_address: "1 Main St",
-      location_maps_url: maps,
-    });
-    expect(result.ok).toBe(true);
-    expect(updateEvent).toHaveBeenCalledWith(
-      "https://x/uid-1.ics",
-      expect.objectContaining({
-        location: "1 Main St",
-        mapsUrl: maps,
-      }),
-    );
-    expect(updateEvent.mock.calls[0]![1]).not.toHaveProperty("description");
-  });
-
-  it("end-only duration update pins start from reminder fireAt", async () => {
-    const linked = makeRecord({
-      calendarUid: "uid-1",
-      calendarHref: "https://x/uid-1.ics",
-      fireAt: new Date("2026-08-24T14:00:00.000Z"),
-      calendarEndAt: new Date("2026-08-24T14:30:00.000Z"),
-    });
-    const store = makeStore({
-      getById: vi.fn().mockResolvedValue(linked),
-      update: vi.fn().mockResolvedValue(linked),
-    });
-    const updateEvent = vi.fn().mockResolvedValue({
-      ok: true,
-      data: {
-        uid: "uid-1",
-        href: "https://x/uid-1.ics",
-        end: new Date("2026-08-24T14:45:00.000Z"),
-      },
-    });
-    const calendar = makeCalendar({ updateEvent });
-    const gw = new ToolGateway();
-    for (const tool of createCalendarTools({
-      calendar,
-      store,
-      config: makeConfig(),
-    })) {
-      gw.register(tool);
-    }
-    const result = await gw.execute("calendar_update_event", {
-      reminder_id: REM_ID,
-      end: "2026-08-24T14:45:00.000Z",
-    });
-    expect(result.ok).toBe(true);
-    expect(updateEvent).toHaveBeenCalledWith(
-      "https://x/uid-1.ics",
-      expect.objectContaining({
-        start: new Date("2026-08-24T14:00:00.000Z"),
-        end: new Date("2026-08-24T14:45:00.000Z"),
-      }),
-    );
-  });
-
-  it("create passes custom and empty alarm_minutes_before", async () => {
-    const reminder = makeRecord();
-    const linked = makeRecord({
-      calendarUid: "uid-alarms",
-      calendarHref: "https://caldav.example/uid-alarms.ics",
-      calendarEndAt: new Date("2024-01-16T16:30:00.000Z"),
-    });
-    const store = makeStore({
-      getById: vi.fn().mockResolvedValue(reminder),
-      setCalendarLink: vi.fn().mockResolvedValue(linked),
-    });
-    const createEvent = vi.fn().mockResolvedValue({
-      ok: true,
-      data: {
-        uid: "uid-alarms",
-        href: "https://caldav.example/uid-alarms.ics",
-        end: new Date("2024-01-16T16:30:00.000Z"),
-      },
-    });
-    const calendar = makeCalendar({ createEvent });
-    const gw = new ToolGateway();
-    for (const tool of createCalendarTools({
-      calendar,
-      store,
-      config: makeConfig(),
-    })) {
-      gw.register(tool);
-    }
-
-    await gw.execute("calendar_create_event", {
-      reminder_id: REM_ID,
-      title: "dentist",
-      start: "2024-01-16T16:00:00.000Z",
-      alarm_minutes_before: [30],
-    });
-    expect(createEvent).toHaveBeenLastCalledWith(
+      event.href,
       expect.objectContaining({ alarmMinutesBefore: [30] }),
     );
-
-    const reminder2 = makeRecord();
-    store.getById = vi.fn().mockResolvedValue(reminder2);
-    await gw.execute("calendar_create_event", {
-      reminder_id: REM_ID,
-      title: "dentist",
-      start: "2024-01-16T16:00:00.000Z",
-      alarm_minutes_before: [],
-    });
-    expect(createEvent).toHaveBeenLastCalledWith(
-      expect.objectContaining({ alarmMinutesBefore: [] }),
-    );
-  });
-
-  it("create omits alarmMinutesBefore when param omitted", async () => {
-    const reminder = makeRecord();
-    const linked = makeRecord({
-      calendarUid: "uid-1",
-      calendarHref: "https://caldav.example/uid-1.ics",
-      calendarEndAt: new Date("2024-01-16T16:30:00.000Z"),
-    });
-    const store = makeStore({
-      getById: vi.fn().mockResolvedValue(reminder),
-      setCalendarLink: vi.fn().mockResolvedValue(linked),
-    });
-    const createEvent = vi.fn().mockResolvedValue({
-      ok: true,
-      data: {
-        uid: "uid-1",
-        href: "https://caldav.example/uid-1.ics",
-        end: new Date("2024-01-16T16:30:00.000Z"),
-      },
-    });
-    const calendar = makeCalendar({ createEvent });
-    const gw = new ToolGateway();
-    for (const tool of createCalendarTools({
-      calendar,
-      store,
-      config: makeConfig(),
-    })) {
-      gw.register(tool);
-    }
-    await gw.execute("calendar_create_event", {
-      reminder_id: REM_ID,
-      title: "dentist",
-      start: "2024-01-16T16:00:00.000Z",
-    });
-    expect(createEvent).toHaveBeenCalledWith(
-      expect.not.objectContaining({
-        alarmMinutesBefore: expect.anything(),
-      }),
-    );
-  });
-
-  it("update restores defaults when alarm_minutes_before is null", async () => {
-    const linked = makeRecord({
-      calendarUid: "uid-1",
-      calendarHref: "https://x/uid-1.ics",
-      calendarEndAt: new Date("2024-01-16T16:30:00.000Z"),
-    });
-    const store = makeStore({
-      getById: vi.fn().mockResolvedValue(linked),
-      update: vi.fn().mockResolvedValue(linked),
-    });
-    const updateEvent = vi.fn().mockResolvedValue({
-      ok: true,
-      data: {
-        uid: "uid-1",
-        href: "https://x/uid-1.ics",
-        end: new Date("2024-01-16T16:30:00.000Z"),
-      },
-    });
-    const calendar = makeCalendar({ updateEvent });
-    const gw = new ToolGateway();
-    for (const tool of createCalendarTools({
-      calendar,
-      store,
-      config: makeConfig(),
-    })) {
-      gw.register(tool);
-    }
-    const result = await gw.execute("calendar_update_event", {
-      reminder_id: REM_ID,
-      alarm_minutes_before: null,
-    });
-    expect(result.ok).toBe(true);
-    expect(updateEvent).toHaveBeenCalledWith("https://x/uid-1.ics", {
-      uid: "uid-1",
-      timeZone: "America/Chicago",
-      alarmMinutesBefore: [60, 15],
-    });
-    expect(store.update).not.toHaveBeenCalled();
-  });
-
-  it("update clears alarms when alarm_minutes_before is empty", async () => {
-    const linked = makeRecord({
-      calendarUid: "uid-1",
-      calendarHref: "https://x/uid-1.ics",
-      calendarEndAt: new Date("2024-01-16T16:30:00.000Z"),
-    });
-    const store = makeStore({
-      getById: vi.fn().mockResolvedValue(linked),
-      update: vi.fn().mockResolvedValue(linked),
-    });
-    const updateEvent = vi.fn().mockResolvedValue({
-      ok: true,
-      data: {
-        uid: "uid-1",
-        href: "https://x/uid-1.ics",
-        end: new Date("2024-01-16T16:30:00.000Z"),
-      },
-    });
-    const calendar = makeCalendar({ updateEvent });
-    const gw = new ToolGateway();
-    for (const tool of createCalendarTools({
-      calendar,
-      store,
-      config: makeConfig(),
-    })) {
-      gw.register(tool);
-    }
-    const result = await gw.execute("calendar_update_event", {
-      reminder_id: REM_ID,
-      alarm_minutes_before: [],
-    });
-    expect(result.ok).toBe(true);
-    expect(updateEvent).toHaveBeenCalledWith("https://x/uid-1.ics", {
-      uid: "uid-1",
-      timeZone: "America/Chicago",
-      alarmMinutesBefore: [],
-    });
-    expect(store.update).not.toHaveBeenCalled();
-  });
-});
-
-describe("reminder_create offer_calendar", () => {
-  it("sets offer_calendar true when calendar enabled", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2024-01-15T18:00:00.000Z"));
-    const store = makeStore({
-      create: vi.fn().mockResolvedValue(makeRecord()),
-    });
-    const calendar = makeCalendar();
-    const gw = new ToolGateway();
-    for (const tool of createReminderTools({
-      store,
-      config: makeConfig(),
-      calendarEnabled: true,
-      calendar,
-    })) {
-      gw.register(tool);
-    }
-    const result = await gw.execute("reminder_create", {
-      text: "x",
-      fire_at: "2024-01-16T16:00:00.000Z",
-    });
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(
-        (result.data as { offer_calendar: boolean }).offer_calendar,
-      ).toBe(true);
-    }
-  });
-
-  it("sets offer_calendar false when calendar disabled", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2024-01-15T18:00:00.000Z"));
-    const store = makeStore({
-      create: vi.fn().mockResolvedValue(makeRecord()),
-    });
-    const gw = new ToolGateway();
-    for (const tool of createReminderTools({
-      store,
-      config: makeConfig(),
-      calendarEnabled: false,
-    })) {
-      gw.register(tool);
-    }
-    const result = await gw.execute("reminder_create", {
-      text: "x",
-      fire_at: "2024-01-16T16:00:00.000Z",
-    });
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(
-        (result.data as { offer_calendar: boolean }).offer_calendar,
-      ).toBe(false);
-    }
-  });
-
-  it("best-effort deletes calendar on reminder_cancel", async () => {
-    const linked = makeRecord({
-      calendarUid: "uid-1",
-      calendarHref: "https://x/uid-1.ics",
-    });
-    const store = makeStore({
-      getById: vi.fn().mockResolvedValue(linked),
-      cancel: vi.fn().mockResolvedValue(
-        makeRecord({ ...linked, status: "cancelled" }),
-      ),
-      clearCalendarLink: vi.fn().mockResolvedValue(makeRecord()),
-    });
-    const calendar = makeCalendar({
-      deleteEvent: vi.fn().mockResolvedValue({ ok: true, data: { deleted: true } }),
-    });
-    const gw = new ToolGateway();
-    for (const tool of createReminderTools({
-      store,
-      config: makeConfig(),
-      calendarEnabled: true,
-      calendar,
-    })) {
-      gw.register(tool);
-    }
-    const result = await gw.execute("reminder_cancel", { id: REM_ID });
-    expect(result.ok).toBe(true);
-    expect(calendar.deleteEvent).toHaveBeenCalledWith("https://x/uid-1.ics");
-    expect(store.cancel).toHaveBeenCalledWith(REM_ID);
   });
 });

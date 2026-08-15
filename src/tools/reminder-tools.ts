@@ -1,5 +1,4 @@
 import type { AppConfig } from "../config.js";
-import type { ICloudCalendarClient } from "../calendar/icloud-client.js";
 import {
   addDaysLocal,
   formatLocal,
@@ -8,10 +7,6 @@ import {
 } from "../utils/time/index.js";
 import { toPublic, type ReminderStore } from "../reminders/store.js";
 import type { Recurrence } from "../reminders/types.js";
-import {
-  deleteLinkedCalendarEvent,
-  syncCalendarAfterReminderUpdate,
-} from "./calendar-tools.js";
 import { logger } from "../log.js";
 import { type ToolDefinition, z } from "./gateway.js";
 
@@ -56,18 +51,14 @@ function todayBounds(timezone: string, now = new Date()): { start: Date; end: Da
 export function createReminderTools(deps: {
   store: ReminderStore;
   config: AppConfig;
-  calendarEnabled?: boolean;
-  calendar?: ICloudCalendarClient | null;
 }): ToolDefinition[] {
   const tz = () => deps.config.USER_TIMEZONE;
-  const calendarEnabled = Boolean(deps.calendarEnabled && deps.calendar);
-  const calendar = deps.calendar ?? null;
 
   return [
     {
       name: "reminder_create",
       description:
-        "Create a reminder. Resolve relative times with get_current_time first, then pass absolute fire_at ISO-8601. Result includes fire_at_iso and fire_at_local — speak fire_at_local only. Use for «напомни…», not for long-term memory facts.",
+        "Create a reminder (stored only; Apple sync and local delivery are not active yet — apple_sync_status stays pending). Resolve relative times with get_current_time first, then pass absolute fire_at ISO-8601. Result includes fire_at_iso and fire_at_local — speak fire_at_local only. Use for «напомни…», not for calendar meetings (use calendar_create_event) and not for long-term memory facts.",
       parameters: {
         type: "object",
         properties: {
@@ -85,20 +76,6 @@ export function createReminderTools(deps: {
             description:
               "Optional recurrence: daily | weekdays | weekly{days} | every_n_days | every_n_hours; optional untilDate YYYY-MM-DD",
           },
-          location_name: {
-            type: "string",
-            description: "Place name from places_search (e.g. Starbucks)",
-          },
-          location_address: {
-            type: "string",
-            description: "Formatted address from places_search",
-          },
-          location_maps_url: {
-            type: "string",
-            description: "Google Maps URL from places_search (do not read aloud)",
-          },
-          location_lat: { type: "number", description: "Latitude" },
-          location_lon: { type: "number", description: "Longitude" },
         },
         required: ["text", "fire_at"],
       },
@@ -108,11 +85,6 @@ export function createReminderTools(deps: {
           fire_at: z.string().min(1),
           raw_utterance: z.string().optional(),
           recurrence: recurrenceSchema.optional(),
-          location_name: z.string().min(1).optional(),
-          location_address: z.string().min(1).optional(),
-          location_maps_url: z.string().url().optional(),
-          location_lat: z.number().finite().optional(),
-          location_lon: z.number().finite().optional(),
         });
         const parsed = schema.safeParse(raw);
         if (!parsed.success) {
@@ -134,38 +106,22 @@ export function createReminderTools(deps: {
           timezone: tz(),
           rawUtterance: parsed.data.raw_utterance ?? null,
           recurrence: (parsed.data.recurrence as Recurrence | undefined) ?? null,
-          locationName: parsed.data.location_name ?? null,
-          locationAddress: parsed.data.location_address ?? null,
-          locationMapsUrl: parsed.data.location_maps_url ?? null,
-          locationLat: parsed.data.location_lat ?? null,
-          locationLon: parsed.data.location_lon ?? null,
         });
         return {
           ok: true,
-          data: { ...toPublic(record), offer_calendar: calendarEnabled },
+          data: toPublic(record),
         };
       },
     },
     {
       name: "reminder_list",
       description:
-        "List upcoming reminders. Default: next 2 days, pending/snoozed/missed.",
+        "List upcoming reminders. Default: next 2 days. Reminders are not delivered locally yet (apple_sync_status pending).",
       parameters: {
         type: "object",
         properties: {
           from: { type: "string", description: "ISO start (inclusive)" },
           to: { type: "string", description: "ISO end (inclusive)" },
-          status: {
-            type: "string",
-            enum: [
-              "pending",
-              "snoozed",
-              "missed",
-              "delivered",
-              "cancelled",
-              "delivering",
-            ],
-          },
           limit: { type: "integer", minimum: 1, maximum: 50 },
         },
       },
@@ -173,16 +129,6 @@ export function createReminderTools(deps: {
         const schema = z.object({
           from: z.string().optional(),
           to: z.string().optional(),
-          status: z
-            .enum([
-              "pending",
-              "snoozed",
-              "missed",
-              "delivered",
-              "cancelled",
-              "delivering",
-            ])
-            .optional(),
           limit: z.number().int().min(1).max(50).optional(),
         });
         const parsed = schema.safeParse(raw ?? {});
@@ -203,13 +149,9 @@ export function createReminderTools(deps: {
           return { ok: false, error: "Invalid from/to ISO timestamp" };
         }
         const limit = parsed.data.limit ?? 30;
-        const statuses = parsed.data.status
-          ? [parsed.data.status]
-          : (["pending", "snoozed", "missed"] as const);
         const rows = await deps.store.list({
           from,
           to,
-          statuses: [...statuses],
           limit,
         });
         logger.info("[reminders] list", {
@@ -224,7 +166,6 @@ export function createReminderTools(deps: {
           count: rows.length,
           from_defaulted: fromDefaulted,
           to_defaulted: toDefaulted,
-          status: parsed.data.status ?? "pending,snoozed,missed",
           duration_ms: Date.now() - started,
         });
         return {
@@ -267,7 +208,7 @@ export function createReminderTools(deps: {
     {
       name: "reminder_update",
       description:
-        "Update reminder text, fire_at, recurrence, and/or location by id.",
+        "Update reminder text, fire_at, and/or recurrence by id. Does not touch Apple Calendar.",
       parameters: {
         type: "object",
         properties: {
@@ -275,11 +216,6 @@ export function createReminderTools(deps: {
           text: { type: "string" },
           fire_at: { type: "string" },
           recurrence: { type: "object" },
-          location_name: { type: "string" },
-          location_address: { type: "string" },
-          location_maps_url: { type: "string" },
-          location_lat: { type: "number" },
-          location_lon: { type: "number" },
         },
         required: ["id"],
       },
@@ -289,11 +225,6 @@ export function createReminderTools(deps: {
           text: z.string().min(1).optional(),
           fire_at: z.string().optional(),
           recurrence: recurrenceSchema.nullable().optional(),
-          location_name: z.string().min(1).nullable().optional(),
-          location_address: z.string().min(1).nullable().optional(),
-          location_maps_url: z.string().url().nullable().optional(),
-          location_lat: z.number().finite().nullable().optional(),
-          location_lon: z.number().finite().nullable().optional(),
         });
         const parsed = schema.safeParse(raw);
         if (!parsed.success) {
@@ -316,68 +247,9 @@ export function createReminderTools(deps: {
             parsed.data.recurrence === undefined
               ? undefined
               : ((parsed.data.recurrence as Recurrence | null) ?? null),
-          locationName:
-            parsed.data.location_name === undefined
-              ? undefined
-              : parsed.data.location_name,
-          locationAddress:
-            parsed.data.location_address === undefined
-              ? undefined
-              : parsed.data.location_address,
-          locationMapsUrl:
-            parsed.data.location_maps_url === undefined
-              ? undefined
-              : parsed.data.location_maps_url,
-          locationLat:
-            parsed.data.location_lat === undefined
-              ? undefined
-              : parsed.data.location_lat,
-          locationLon:
-            parsed.data.location_lon === undefined
-              ? undefined
-              : parsed.data.location_lon,
-          status: fireAt ? "pending" : undefined,
         });
         if (!updated) {
           return { ok: false, error: "Reminder not found" };
-        }
-        const locationChanged =
-          parsed.data.location_name !== undefined ||
-          parsed.data.location_address !== undefined ||
-          parsed.data.location_maps_url !== undefined ||
-          parsed.data.location_lat !== undefined ||
-          parsed.data.location_lon !== undefined;
-        if (
-          calendar &&
-          (parsed.data.text !== undefined || fireAt || locationChanged)
-        ) {
-          const sync = await syncCalendarAfterReminderUpdate({
-            calendar,
-            store: deps.store,
-            before,
-            after: updated,
-            timeZone: tz(),
-          });
-          if (!sync.ok) {
-            await deps.store.update(before.id, {
-              text: before.text,
-              fireAt: before.fireAt,
-              status: before.status,
-              recurrence: before.recurrence,
-              calendarEndAt: before.calendarEndAt,
-              locationName: before.locationName,
-              locationAddress: before.locationAddress,
-              locationMapsUrl: before.locationMapsUrl,
-              locationLat: before.locationLat,
-              locationLon: before.locationLon,
-            });
-            return { ok: false, error: sync.error };
-          }
-          const refreshed = await deps.store.getById(updated.id);
-          return {
-            ok: true,
-            data: toPublic(refreshed ?? updated),
-          };
         }
         return { ok: true, data: toPublic(updated) };
       },
@@ -385,7 +257,7 @@ export function createReminderTools(deps: {
     {
       name: "reminder_cancel",
       description:
-        "Cancel one reminder by id, or by query. If query matches multiple, returns candidates without cancelling.",
+        "Cancel (delete) one reminder by id, or by query. If query matches multiple, returns candidates without cancelling. Does not affect Apple Calendar.",
       parameters: {
         type: "object",
         properties: {
@@ -408,33 +280,13 @@ export function createReminderTools(deps: {
         }
 
         const cancelOne = async (id: string) => {
-          const current = await deps.store.getById(id);
-          if (!current) {
-            return { ok: false as const, error: "Reminder not found" };
-          }
-          let calendarDeleteError: string | undefined;
-          if (calendar && current.calendarHref) {
-            const del = await deleteLinkedCalendarEvent({
-              calendar,
-              store: deps.store,
-              reminder: current,
-            });
-            if (!del.deleted && del.error) {
-              calendarDeleteError = del.error;
-            }
-          }
           const cancelled = await deps.store.cancel(id);
           if (!cancelled) {
             return { ok: false as const, error: "Reminder not found" };
           }
           return {
             ok: true as const,
-            data: {
-              ...toPublic(cancelled),
-              ...(calendarDeleteError
-                ? { calendar_delete_error: calendarDeleteError }
-                : {}),
-            },
+            data: toPublic(cancelled),
           };
         };
 
@@ -460,14 +312,13 @@ export function createReminderTools(deps: {
     {
       name: "reminder_snooze",
       description:
-        "Snooze a reminder to a new time (until_fire_at ISO or minutes from now). Short snooze can skip quiet hours.",
+        "Reschedule a reminder to a new time (until_fire_at ISO or minutes from now). Local delivery is not active.",
       parameters: {
         type: "object",
         properties: {
           id: { type: "string" },
           until_fire_at: { type: "string" },
           minutes: { type: "integer", minimum: 1 },
-          skip_quiet_hours: { type: "boolean" },
         },
         required: ["id"],
       },
@@ -477,7 +328,6 @@ export function createReminderTools(deps: {
             id: z.string().uuid(),
             until_fire_at: z.string().optional(),
             minutes: z.number().int().min(1).max(7 * 24 * 60).optional(),
-            skip_quiet_hours: z.boolean().optional(),
           })
           .refine((v) => Boolean(v.until_fire_at || v.minutes), {
             message: "Provide until_fire_at or minutes",
@@ -494,13 +344,8 @@ export function createReminderTools(deps: {
         } else {
           fireAt = new Date(Date.now() + parsed.data.minutes! * 60_000);
         }
-        const skip =
-          parsed.data.skip_quiet_hours === true ||
-          (parsed.data.minutes !== undefined && parsed.data.minutes <= 60);
         const updated = await deps.store.update(parsed.data.id, {
           fireAt,
-          status: "snoozed",
-          quietHoursOverride: skip ? true : null,
         });
         if (!updated) {
           return { ok: false, error: "Reminder not found" };
@@ -511,7 +356,7 @@ export function createReminderTools(deps: {
     {
       name: "reminder_cancel_many",
       description:
-        "Cancel many reminders: today, all_pending, or a fire_at range.",
+        "Cancel (delete) many reminders: today, all_pending, or a fire_at range. Does not affect Apple Calendar.",
       parameters: {
         type: "object",
         properties: {
@@ -538,34 +383,12 @@ export function createReminderTools(deps: {
 
         if (parsed.data.scope === "today") {
           const { start, end } = todayBounds(timezone);
-          const opts = {
-            scope: "today" as const,
+          const count = await deps.store.cancelMany({
+            scope: "today",
             todayStart: start,
             todayEnd: end,
-          };
-          let calendar_delete_errors = 0;
-          if (calendar) {
-            const targets = await deps.store.listForCancelMany(opts);
-            for (const rem of targets) {
-              if (!rem.calendarHref) continue;
-              const del = await deleteLinkedCalendarEvent({
-                calendar,
-                store: deps.store,
-                reminder: rem,
-              });
-              if (!del.deleted && del.error) calendar_delete_errors += 1;
-            }
-          }
-          const count = await deps.store.cancelMany(opts);
-          return {
-            ok: true,
-            data: {
-              cancelled: count,
-              ...(calendar_delete_errors > 0
-                ? { calendar_delete_errors }
-                : {}),
-            },
-          };
+          });
+          return { ok: true, data: { cancelled: count } };
         }
         if (parsed.data.scope === "range") {
           const from = parsed.data.from
@@ -578,59 +401,17 @@ export function createReminderTools(deps: {
           if (parsed.data.to && !to) {
             return { ok: false, error: "Invalid to" };
           }
-          const opts = {
-            scope: "range" as const,
+          const count = await deps.store.cancelMany({
+            scope: "range",
             from: from ?? undefined,
             to: to ?? undefined,
-          };
-          let calendar_delete_errors = 0;
-          if (calendar) {
-            const targets = await deps.store.listForCancelMany(opts);
-            for (const rem of targets) {
-              if (!rem.calendarHref) continue;
-              const del = await deleteLinkedCalendarEvent({
-                calendar,
-                store: deps.store,
-                reminder: rem,
-              });
-              if (!del.deleted && del.error) calendar_delete_errors += 1;
-            }
-          }
-          const count = await deps.store.cancelMany(opts);
-          return {
-            ok: true,
-            data: {
-              cancelled: count,
-              ...(calendar_delete_errors > 0
-                ? { calendar_delete_errors }
-                : {}),
-            },
-          };
+          });
+          return { ok: true, data: { cancelled: count } };
         }
-        const opts = { scope: "all_pending" as const };
-        let calendar_delete_errors = 0;
-        if (calendar) {
-          const targets = await deps.store.listForCancelMany(opts);
-          for (const rem of targets) {
-            if (!rem.calendarHref) continue;
-            const del = await deleteLinkedCalendarEvent({
-              calendar,
-              store: deps.store,
-              reminder: rem,
-            });
-            if (!del.deleted && del.error) calendar_delete_errors += 1;
-          }
-        }
-        const count = await deps.store.cancelMany(opts);
-        return {
-          ok: true,
-          data: {
-            cancelled: count,
-            ...(calendar_delete_errors > 0
-              ? { calendar_delete_errors }
-              : {}),
-          },
-        };
+        const count = await deps.store.cancelMany({
+          scope: "all_pending",
+        });
+        return { ok: true, data: { cancelled: count } };
       },
     },
   ];

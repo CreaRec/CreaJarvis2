@@ -1,10 +1,4 @@
-export type ReminderStatus =
-  | "pending"
-  | "delivering"
-  | "delivered"
-  | "missed"
-  | "cancelled"
-  | "snoozed";
+export type ReminderAppleSyncStatus = "pending" | "synced" | "failed";
 
 export type Recurrence =
   | { kind: "daily"; untilDate?: string }
@@ -18,19 +12,9 @@ export interface ReminderRecord {
   text: string;
   fireAt: Date;
   timezone: string;
-  status: ReminderStatus;
   rawUtterance: string | null;
   recurrence: Recurrence | null;
-  quietHoursOverride: boolean | null;
-  deliveredAt: Date | null;
-  calendarUid: string | null;
-  calendarHref: string | null;
-  calendarEndAt: Date | null;
-  locationName: string | null;
-  locationAddress: string | null;
-  locationMapsUrl: string | null;
-  locationLat: number | null;
-  locationLon: number | null;
+  appleSyncStatus: ReminderAppleSyncStatus;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -41,13 +25,7 @@ export interface NewReminder {
   timezone: string;
   rawUtterance?: string | null;
   recurrence?: Recurrence | null;
-  quietHoursOverride?: boolean | null;
-  status?: ReminderStatus;
-  locationName?: string | null;
-  locationAddress?: string | null;
-  locationMapsUrl?: string | null;
-  locationLat?: number | null;
-  locationLon?: number | null;
+  appleSyncStatus?: ReminderAppleSyncStatus;
 }
 
 export interface ReminderPublic {
@@ -55,17 +33,9 @@ export interface ReminderPublic {
   text: string;
   fire_at_iso: string;
   fire_at_local: string;
-  status: ReminderStatus;
   recurrence: Recurrence | null;
   raw_utterance: string | null;
   timezone: string;
-  delivered_at: string | null;
   created_at: string;
-  calendar_uid: string | null;
-  has_calendar_event: boolean;
-  calendar_end_at_iso: string | null;
-  calendar_end_at_local: string | null;
-  location_name: string | null;
-  location_address: string | null;
-  location_maps_url: string | null;
+  apple_sync_status: ReminderAppleSyncStatus;
 }

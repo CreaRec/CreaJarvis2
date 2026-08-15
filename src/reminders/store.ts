@@ -1,18 +1,17 @@
 import {
   Prisma,
   type PrismaClient,
-  type ReminderStatus as PrismaStatus,
+  type ReminderAppleSyncStatus as PrismaAppleSyncStatus,
 } from "@prisma/client";
 import { logger } from "../log.js";
 import type { Embedder } from "../memory/embedder.js";
 import { formatLocal } from "../utils/time/index.js";
-import { nextFireAt } from "./recurrence.js";
 import type {
   NewReminder,
   Recurrence,
+  ReminderAppleSyncStatus,
   ReminderPublic,
   ReminderRecord,
-  ReminderStatus,
 } from "./types.js";
 
 function toVectorLiteral(embedding: number[]): string {
@@ -30,19 +29,9 @@ type ReminderRow = {
   text: string;
   fireAt: Date;
   timezone: string;
-  status: PrismaStatus;
   rawUtterance: string | null;
   recurrence: Prisma.JsonValue;
-  quietHoursOverride: boolean | null;
-  deliveredAt: Date | null;
-  calendarUid: string | null;
-  calendarHref: string | null;
-  calendarEndAt: Date | null;
-  locationName: string | null;
-  locationAddress: string | null;
-  locationMapsUrl: string | null;
-  locationLat: number | null;
-  locationLon: number | null;
+  appleSyncStatus: PrismaAppleSyncStatus;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -53,19 +42,9 @@ function toRecord(row: ReminderRow): ReminderRecord {
     text: row.text,
     fireAt: row.fireAt,
     timezone: row.timezone,
-    status: row.status as ReminderStatus,
     rawUtterance: row.rawUtterance,
     recurrence: parseRecurrence(row.recurrence),
-    quietHoursOverride: row.quietHoursOverride,
-    deliveredAt: row.deliveredAt,
-    calendarUid: row.calendarUid ?? null,
-    calendarHref: row.calendarHref ?? null,
-    calendarEndAt: row.calendarEndAt ?? null,
-    locationName: row.locationName ?? null,
-    locationAddress: row.locationAddress ?? null,
-    locationMapsUrl: row.locationMapsUrl ?? null,
-    locationLat: row.locationLat ?? null,
-    locationLon: row.locationLon ?? null,
+    appleSyncStatus: row.appleSyncStatus as ReminderAppleSyncStatus,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -77,21 +56,11 @@ export function toPublic(r: ReminderRecord): ReminderPublic {
     text: r.text,
     fire_at_iso: r.fireAt.toISOString(),
     fire_at_local: formatLocal(r.fireAt, r.timezone),
-    status: r.status,
     recurrence: r.recurrence,
     raw_utterance: r.rawUtterance,
     timezone: r.timezone,
-    delivered_at: r.deliveredAt?.toISOString() ?? null,
     created_at: r.createdAt.toISOString(),
-    calendar_uid: r.calendarUid,
-    has_calendar_event: Boolean(r.calendarUid),
-    calendar_end_at_iso: r.calendarEndAt?.toISOString() ?? null,
-    calendar_end_at_local: r.calendarEndAt
-      ? formatLocal(r.calendarEndAt, r.timezone)
-      : null,
-    location_name: r.locationName,
-    location_address: r.locationAddress,
-    location_maps_url: r.locationMapsUrl,
+    apple_sync_status: r.appleSyncStatus,
   };
 }
 
@@ -107,16 +76,10 @@ export class ReminderStore {
         text: input.text,
         fireAt: input.fireAt,
         timezone: input.timezone,
-        status: input.status ?? "pending",
         rawUtterance: input.rawUtterance ?? null,
         recurrence: (input.recurrence ??
           undefined) as Prisma.InputJsonValue | undefined,
-        quietHoursOverride: input.quietHoursOverride ?? null,
-        locationName: input.locationName ?? null,
-        locationAddress: input.locationAddress ?? null,
-        locationMapsUrl: input.locationMapsUrl ?? null,
-        locationLat: input.locationLat ?? null,
-        locationLon: input.locationLon ?? null,
+        appleSyncStatus: input.appleSyncStatus ?? "pending",
       },
     });
     const record = toRecord(row);
@@ -127,22 +90,6 @@ export class ReminderStore {
   async getById(id: string): Promise<ReminderRecord | null> {
     const row = await this.db.reminder.findUnique({ where: { id } });
     return row ? toRecord(row) : null;
-  }
-
-  async getByCalendarUid(uid: string): Promise<ReminderRecord | null> {
-    const row = await this.db.reminder.findUnique({
-      where: { calendarUid: uid },
-    });
-    return row ? toRecord(row) : null;
-  }
-
-  async getByCalendarUids(uids: string[]): Promise<ReminderRecord[]> {
-    const unique = [...new Set(uids.filter((u) => u.length > 0))];
-    if (unique.length === 0) return [];
-    const rows = await this.db.reminder.findMany({
-      where: { calendarUid: { in: unique } },
-    });
-    return rows.map(toRecord);
   }
 
   async getByIds(ids: string[]): Promise<ReminderRecord[]> {
@@ -156,56 +103,13 @@ export class ReminderStore {
       .filter((r): r is ReminderRecord => Boolean(r));
   }
 
-  async setCalendarLink(
-    id: string,
-    link: { uid: string; href: string; endAt: Date },
-  ): Promise<ReminderRecord | null> {
-    try {
-      const row = await this.db.reminder.update({
-        where: { id },
-        data: {
-          calendarUid: link.uid,
-          calendarHref: link.href,
-          calendarEndAt: link.endAt,
-        },
-      });
-      return toRecord(row);
-    } catch {
-      return null;
-    }
-  }
-
-  async clearCalendarLink(id: string): Promise<ReminderRecord | null> {
-    try {
-      const row = await this.db.reminder.update({
-        where: { id },
-        data: {
-          calendarUid: null,
-          calendarHref: null,
-          calendarEndAt: null,
-        },
-      });
-      return toRecord(row);
-    } catch {
-      return null;
-    }
-  }
-
   async update(
     id: string,
     patch: {
       text?: string;
       fireAt?: Date;
       recurrence?: Recurrence | null;
-      status?: ReminderStatus;
-      quietHoursOverride?: boolean | null;
-      deliveredAt?: Date | null;
-      calendarEndAt?: Date | null;
-      locationName?: string | null;
-      locationAddress?: string | null;
-      locationMapsUrl?: string | null;
-      locationLat?: number | null;
-      locationLon?: number | null;
+      appleSyncStatus?: ReminderAppleSyncStatus;
     },
   ): Promise<ReminderRecord | null> {
     try {
@@ -214,30 +118,8 @@ export class ReminderStore {
         data: {
           ...(patch.text !== undefined ? { text: patch.text } : {}),
           ...(patch.fireAt !== undefined ? { fireAt: patch.fireAt } : {}),
-          ...(patch.status !== undefined ? { status: patch.status } : {}),
-          ...(patch.quietHoursOverride !== undefined
-            ? { quietHoursOverride: patch.quietHoursOverride }
-            : {}),
-          ...(patch.deliveredAt !== undefined
-            ? { deliveredAt: patch.deliveredAt }
-            : {}),
-          ...(patch.calendarEndAt !== undefined
-            ? { calendarEndAt: patch.calendarEndAt }
-            : {}),
-          ...(patch.locationName !== undefined
-            ? { locationName: patch.locationName }
-            : {}),
-          ...(patch.locationAddress !== undefined
-            ? { locationAddress: patch.locationAddress }
-            : {}),
-          ...(patch.locationMapsUrl !== undefined
-            ? { locationMapsUrl: patch.locationMapsUrl }
-            : {}),
-          ...(patch.locationLat !== undefined
-            ? { locationLat: patch.locationLat }
-            : {}),
-          ...(patch.locationLon !== undefined
-            ? { locationLon: patch.locationLon }
+          ...(patch.appleSyncStatus !== undefined
+            ? { appleSyncStatus: patch.appleSyncStatus }
             : {}),
           ...(patch.recurrence !== undefined
             ? {
@@ -260,13 +142,11 @@ export class ReminderStore {
   async list(opts: {
     from?: Date;
     to?: Date;
-    statuses?: ReminderStatus[];
     limit?: number;
   }): Promise<ReminderRecord[]> {
     const limit = opts.limit ?? 50;
     const rows = await this.db.reminder.findMany({
       where: {
-        ...(opts.statuses?.length ? { status: { in: opts.statuses } } : {}),
         ...(opts.from || opts.to
           ? {
               fireAt: {
@@ -283,29 +163,20 @@ export class ReminderStore {
   }
 
   async listForDebug(limit = 100): Promise<ReminderRecord[]> {
-    const active = await this.db.reminder.findMany({
-      where: {
-        status: { in: ["pending", "delivering", "missed", "snoozed"] },
-      },
+    const rows = await this.db.reminder.findMany({
       orderBy: { fireAt: "asc" },
       take: limit,
     });
-    const remaining = Math.max(0, limit - active.length);
-    const recent =
-      remaining > 0
-        ? await this.db.reminder.findMany({
-            where: {
-              status: { in: ["delivered", "cancelled"] },
-            },
-            orderBy: { updatedAt: "desc" },
-            take: remaining,
-          })
-        : [];
-    return [...active.map(toRecord), ...recent.map(toRecord)];
+    return rows.map(toRecord);
   }
 
   async cancel(id: string): Promise<ReminderRecord | null> {
-    return this.update(id, { status: "cancelled" });
+    try {
+      const row = await this.db.reminder.delete({ where: { id } });
+      return toRecord(row);
+    } catch {
+      return null;
+    }
   }
 
   async cancelMany(opts: {
@@ -315,9 +186,7 @@ export class ReminderStore {
     todayStart?: Date;
     todayEnd?: Date;
   }): Promise<number> {
-    const where: Prisma.ReminderWhereInput = {
-      status: { in: ["pending", "snoozed", "missed", "delivering"] },
-    };
+    const where: Prisma.ReminderWhereInput = {};
     if (opts.scope === "today" && opts.todayStart && opts.todayEnd) {
       where.fireAt = { gte: opts.todayStart, lt: opts.todayEnd };
     } else if (opts.scope === "range") {
@@ -326,34 +195,8 @@ export class ReminderStore {
         ...(opts.to ? { lte: opts.to } : {}),
       };
     }
-    const result = await this.db.reminder.updateMany({
-      where,
-      data: { status: "cancelled" },
-    });
+    const result = await this.db.reminder.deleteMany({ where });
     return result.count;
-  }
-
-  /** Reminders that would be cancelled by cancelMany (for calendar sync). */
-  async listForCancelMany(opts: {
-    scope: "today" | "all_pending" | "range";
-    from?: Date;
-    to?: Date;
-    todayStart?: Date;
-    todayEnd?: Date;
-  }): Promise<ReminderRecord[]> {
-    const where: Prisma.ReminderWhereInput = {
-      status: { in: ["pending", "snoozed", "missed", "delivering"] },
-    };
-    if (opts.scope === "today" && opts.todayStart && opts.todayEnd) {
-      where.fireAt = { gte: opts.todayStart, lt: opts.todayEnd };
-    } else if (opts.scope === "range") {
-      where.fireAt = {
-        ...(opts.from ? { gte: opts.from } : {}),
-        ...(opts.to ? { lte: opts.to } : {}),
-      };
-    }
-    const rows = await this.db.reminder.findMany({ where });
-    return rows.map(toRecord);
   }
 
   async keywordSearch(query: string, limit: number): Promise<ReminderRecord[]> {
@@ -363,20 +206,12 @@ export class ReminderStore {
       .filter((t) => t.length > 1)
       .slice(0, 8);
 
-    const statusFilter: ReminderStatus[] = [
-      "pending",
-      "snoozed",
-      "missed",
-      "delivering",
-    ];
-
     if (tokens.length === 0) {
-      return this.list({ statuses: statusFilter, limit });
+      return this.list({ limit });
     }
 
     const rows = await this.db.reminder.findMany({
       where: {
-        status: { in: statusFilter },
         OR: tokens.flatMap((t) => [
           { text: { contains: t, mode: "insensitive" as const } },
           { rawUtterance: { contains: t, mode: "insensitive" as const } },
@@ -409,7 +244,6 @@ export class ReminderStore {
           `SELECT "id"::text AS id, 1 - ("embedding" <=> $1::vector) AS score
            FROM "reminders"
            WHERE "embedding" IS NOT NULL
-             AND status IN ('pending', 'snoozed', 'missed', 'delivering')
            ORDER BY "embedding" <=> $1::vector
            LIMIT $2`,
           literal,
@@ -447,69 +281,5 @@ export class ReminderStore {
       literal,
       id,
     );
-  }
-
-  async claimDue(now: Date, limit = 20): Promise<ReminderRecord[]> {
-    // Do NOT RETURNING * — Prisma cannot deserialize Unsupported("vector").
-    // Also re-claim stuck `delivering` rows (e.g. after a failed RETURNING).
-    const rows = await this.db.$queryRawUnsafe<ReminderRow[]>(
-      `UPDATE "reminders"
-       SET status = 'delivering', "updatedAt" = NOW()
-       WHERE id IN (
-         SELECT id FROM "reminders"
-         WHERE (
-             (status IN ('pending', 'snoozed') AND "fireAt" <= $1)
-             OR (status = 'delivering' AND "fireAt" <= $1)
-           )
-         ORDER BY "fireAt" ASC
-         LIMIT $2
-         FOR UPDATE SKIP LOCKED
-       )
-       RETURNING
-         id, text, "fireAt", timezone, status, "rawUtterance",
-         recurrence, "quietHoursOverride", "deliveredAt",
-         "calendarUid", "calendarHref", "calendarEndAt",
-         "createdAt", "updatedAt"`,
-      now,
-      limit,
-    );
-    return rows.map(toRecord);
-  }
-
-  async markMissed(id: string): Promise<ReminderRecord | null> {
-    return this.update(id, { status: "missed" });
-  }
-
-  async listMissed(limit = 50): Promise<ReminderRecord[]> {
-    return this.list({ statuses: ["missed"], limit });
-  }
-
-  async completeDelivery(id: string): Promise<ReminderRecord | null> {
-    const current = await this.getById(id);
-    if (!current) return null;
-
-    if (current.recurrence) {
-      const next = nextFireAt(
-        current.fireAt,
-        current.recurrence,
-        current.timezone,
-      );
-      if (next) {
-        return this.update(id, {
-          fireAt: next,
-          status: "pending",
-          deliveredAt: new Date(),
-        });
-      }
-    }
-
-    return this.update(id, {
-      status: "delivered",
-      deliveredAt: new Date(),
-    });
-  }
-
-  async requeue(id: string, status: ReminderStatus = "pending"): Promise<void> {
-    await this.update(id, { status });
   }
 }

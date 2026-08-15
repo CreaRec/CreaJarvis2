@@ -39,19 +39,9 @@ function makeReminder(
     text: "item",
     fireAt: new Date("2024-01-15T23:00:00.000Z"),
     timezone: TZ,
-    status: "pending",
     rawUtterance: null,
     recurrence: null,
-    quietHoursOverride: null,
-    deliveredAt: null,
-    calendarUid: null,
-    calendarHref: null,
-    calendarEndAt: null,
-    locationName: null,
-    locationAddress: null,
-    locationMapsUrl: null,
-    locationLat: null,
-    locationLon: null,
+    appleSyncStatus: "pending",
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -83,7 +73,7 @@ describe("PlanStore reminder sync", () => {
   beforeEach(() => {
     reminders = {
       create: vi.fn().mockResolvedValue(makeReminder()),
-      cancel: vi.fn().mockResolvedValue(makeReminder({ status: "cancelled" })),
+      cancel: vi.fn().mockResolvedValue(makeReminder()),
       update: vi.fn().mockResolvedValue(makeReminder()),
     };
     db = {
@@ -299,7 +289,7 @@ describe("PlanStore reminder sync", () => {
     await store.moveItem(ITEM_ID, "2024-01-16", newFire);
     expect(reminders.update).toHaveBeenCalledWith(
       REM_ID,
-      expect.objectContaining({ fireAt: newFire, status: "pending" }),
+      expect.objectContaining({ fireAt: newFire }),
     );
   });
 

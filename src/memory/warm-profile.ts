@@ -82,7 +82,8 @@ export function buildSessionInstructions(
     "Never claim knowledge you did not get from the warm profile or tool results.",
     "",
     "Reminders:",
-    "Timed «напомни…» requests use reminder_* tools — NOT memory_save.",
+    "Timed «напомни…» requests use reminder_* tools — NOT memory_save and NOT calendar_*.",
+    "Reminders are stored only for now: apple_sync_status stays pending; Jarvis does not deliver them and they are not synced to Apple Reminders yet. Do not promise a notification.",
     `User timezone: ${tz}. Always call get_current_time before resolving relative times, then pass absolute fire_at ISO to reminder_create/update.`,
     "Datetimes in tool results: fields ending in `_iso` (or `iso`) are UTC for machine round-trips; fields ending in `_local` (or `local`) are in the user timezone.",
     "CRITICAL speech: when confirming or listing times, ALWAYS speak `*_local` / `local` — never read `*_iso`, bare ISO/`Z` timestamps, or invent an offset.",
@@ -100,25 +101,18 @@ export function buildSessionInstructions(
     "«Что я просил напомнить?» → reminder_list (default next ~2 days).",
     "Topic search → reminder_search. Cancel/reschedule/snooze → reminder_cancel / reminder_update / reminder_snooze.",
     "If cancel by query matches multiple → ask which one (do not guess).",
-    "After create, confirm briefly with fire_at_local (or start_local) from the tool result — not fire_at_iso.",
-    ...(calendarEnabled
-      ? [
-          "After reminder_create for a pure «напомни…» request, if offer_calendar is true: confirm the reminder, then ask whether to add it to Apple Calendar. On yes → calendar_create_event with that reminder_id, same title/start (default end = start+30m).",
-          "Do not offer calendar after cancel/list/search/snooze.",
-        ]
-      : []),
+    "After create, confirm briefly with fire_at_local from the tool result — not fire_at_iso. Mention that delivery/Apple sync is not active yet only if the user asks.",
     "",
     ...(calendarEnabled
       ? [
           "Apple Calendar:",
-          "Explicit «создай событие / в календарь / встречу…» → reminder_create first, then immediately calendar_create_event with that reminder_id (do not ask).",
-          "If the user names a venue/place for a meeting or reminder → call places_search first. On one clear hit (or after the user picks), pass location_name, location_address, location_maps_url, location_lat, location_lon into reminder_create (then calendar_create_event).",
+          "Explicit «создай событие / в календарь / встречу…» → calendar_create_event directly (do not create a reminder first). Events are independent of reminders.",
+          "If the user names a venue/place for a meeting → call places_search first. On one clear hit (or after the user picks), pass location_name, location_address, location_maps_url, location_lat, location_lon into calendar_create_event.",
           "When speaking location: use location_name / location_address. Never read location_maps_url aloud.",
-          "«Что в календаре / какие встречи?» → calendar_list (not only reminder_list).",
-          "Reschedule or edit a calendar event → calendar_update_event (reminder_id or event_uid).",
+          "«Что в календаре / какие встречи?» → calendar_list (not reminder_list).",
+          "Reschedule or edit a calendar event → calendar_update_event (event_id or event_uid).",
           "Change/remove Apple Calendar alerts before the event → calendar_update_event with only alarm_minutes_before ([] clears, [30] custom, null restores default 1h+15m; omit to keep existing). Do not pass start/end/title when only changing alerts.",
-          "Remove from calendar only → calendar_delete_event. Cancel the reminder entirely → reminder_cancel (also deletes the linked calendar event).",
-          "calendar_create_event never creates reminders — always reminder_create first.",
+          "Remove from calendar → calendar_delete_event. Reminder cancel does not delete calendar events.",
           "",
         ]
       : []),

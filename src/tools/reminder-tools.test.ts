@@ -55,19 +55,9 @@ function makeRecord(
     text: "купить молоко",
     fireAt: new Date("2024-01-16T16:00:00.000Z"),
     timezone: "America/Chicago",
-    status: "pending",
     rawUtterance: "напомни купить молоко",
     recurrence: null,
-    quietHoursOverride: null,
-    deliveredAt: null,
-    calendarUid: null,
-    calendarHref: null,
-    calendarEndAt: null,
-    locationName: null,
-    locationAddress: null,
-    locationMapsUrl: null,
-    locationLat: null,
-    locationLon: null,
+    appleSyncStatus: "pending",
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -83,8 +73,6 @@ function makeStore(
     update: ReminderStore["update"];
     cancel: ReminderStore["cancel"];
     cancelMany: ReminderStore["cancelMany"];
-    listForCancelMany: ReminderStore["listForCancelMany"];
-    clearCalendarLink: ReminderStore["clearCalendarLink"];
   }> = {},
 ): ReminderStore {
   return {
@@ -95,8 +83,6 @@ function makeStore(
     update: vi.fn(),
     cancel: vi.fn(),
     cancelMany: vi.fn(),
-    listForCancelMany: vi.fn(),
-    clearCalendarLink: vi.fn(),
     ...overrides,
   } as unknown as ReminderStore;
 }
@@ -142,7 +128,7 @@ describe("createReminderTools", () => {
       });
     });
 
-    it("creates a reminder for a future fire_at", async () => {
+    it("creates a reminder with apple_sync_status pending", async () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date("2024-01-15T18:00:00.000Z"));
       const record = makeRecord();
@@ -161,56 +147,18 @@ describe("createReminderTools", () => {
           rawUtterance: "напомни купить молоко",
         }),
       );
-    });
-
-    it("stores location fields from places_search", async () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date("2024-01-15T18:00:00.000Z"));
-      const record = makeRecord({
-        locationName: "Starbucks",
-        locationAddress: "123 Lamar Blvd, Austin, TX",
-        locationMapsUrl: "https://maps.google.com/?cid=1",
-        locationLat: 30.27,
-        locationLon: -97.74,
-      });
-      const store = makeStore({ create: vi.fn().mockResolvedValue(record) });
-      const gw = gatewayWith(store);
-      const result = await gw.execute("reminder_create", {
-        text: "Coffee",
-        fire_at: "2024-01-16T16:00:00.000Z",
-        location_name: "Starbucks",
-        location_address: "123 Lamar Blvd, Austin, TX",
-        location_maps_url: "https://maps.google.com/?cid=1",
-        location_lat: 30.27,
-        location_lon: -97.74,
-      });
-      expect(result.ok).toBe(true);
-      expect(store.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          locationName: "Starbucks",
-          locationAddress: "123 Lamar Blvd, Austin, TX",
-          locationMapsUrl: "https://maps.google.com/?cid=1",
-          locationLat: 30.27,
-          locationLon: -97.74,
-        }),
-      );
       if (result.ok) {
-        const data = result.data as {
-          location_name: string | null;
-          location_address: string | null;
-        };
-        expect(data.location_name).toBe("Starbucks");
-        expect(data.location_address).toBe("123 Lamar Blvd, Austin, TX");
+        const data = result.data as { apple_sync_status: string };
+        expect(data.apple_sync_status).toBe("pending");
+        expect(data).not.toHaveProperty("offer_calendar");
       }
     });
   });
 
   describe("reminder_cancel", () => {
     it("cancels by id", async () => {
-      const pending = makeRecord();
-      const record = makeRecord({ status: "cancelled" });
+      const record = makeRecord();
       const store = makeStore({
-        getById: vi.fn().mockResolvedValue(pending),
         cancel: vi.fn().mockResolvedValue(record),
       });
       const gw = gatewayWith(store);
@@ -244,10 +192,7 @@ describe("createReminderTools", () => {
       const record = makeRecord();
       const store = makeStore({
         search: vi.fn().mockResolvedValue([record]),
-        getById: vi.fn().mockResolvedValue(record),
-        cancel: vi
-          .fn()
-          .mockResolvedValue({ ...record, status: "cancelled" as const }),
+        cancel: vi.fn().mockResolvedValue(record),
       });
       const gw = gatewayWith(store);
       const result = await gw.execute("reminder_cancel", {
@@ -259,10 +204,11 @@ describe("createReminderTools", () => {
   });
 
   describe("reminder_snooze", () => {
-    it("sets quietHoursOverride for short minute snooze", async () => {
+    it("reschedules fireAt by minutes", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2024-01-15T18:00:00.000Z"));
       const record = makeRecord({
-        status: "snoozed",
-        quietHoursOverride: true,
+        fireAt: new Date("2024-01-15T18:30:00.000Z"),
       });
       const store = makeStore({
         update: vi.fn().mockResolvedValue(record),
@@ -273,31 +219,9 @@ describe("createReminderTools", () => {
         minutes: 30,
       });
       expect(result.ok).toBe(true);
-      expect(store.update).toHaveBeenCalledWith(
-        record.id,
-        expect.objectContaining({
-          status: "snoozed",
-          quietHoursOverride: true,
-        }),
-      );
-    });
-
-    it("does not set quietHoursOverride for long snooze unless requested", async () => {
-      const record = makeRecord({ status: "snoozed" });
-      const store = makeStore({
-        update: vi.fn().mockResolvedValue(record),
+      expect(store.update).toHaveBeenCalledWith(record.id, {
+        fireAt: new Date("2024-01-15T18:30:00.000Z"),
       });
-      const gw = gatewayWith(store);
-      await gw.execute("reminder_snooze", {
-        id: record.id,
-        minutes: 120,
-      });
-      expect(store.update).toHaveBeenCalledWith(
-        record.id,
-        expect.objectContaining({
-          quietHoursOverride: null,
-        }),
-      );
     });
   });
 
@@ -316,7 +240,7 @@ describe("createReminderTools", () => {
 
     it("cancels today with local day bounds", async () => {
       vi.useFakeTimers();
-      vi.setSystemTime(new Date("2024-01-15T18:00:00.000Z")); // noon CST
+      vi.setSystemTime(new Date("2024-01-15T18:00:00.000Z"));
       const store = makeStore({
         cancelMany: vi.fn().mockResolvedValue(1),
       });
