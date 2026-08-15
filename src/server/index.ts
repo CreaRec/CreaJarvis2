@@ -1,10 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import {
-  loadConfig,
-  resolveICloudCalendarConfig,
-  resolveTelegramConfig,
-} from "../config.js";
+import { loadConfig, resolveICloudCalendarConfig } from "../config.js";
 import { TsdavICloudCalendarClient } from "../calendar/icloud-client.js";
 import { createCalendarTools } from "../tools/calendar-tools.js";
 import {
@@ -41,8 +37,7 @@ import {
 } from "../weather/open-meteo.js";
 import { logger } from "../log.js";
 import { startTelemetry, shutdownTelemetry } from "../telemetry.js";
-import { TelegramBotService } from "../telegram/bot.js";
-import { TelegramSettingsStore } from "../telegram/settings-store.js";
+import { handleAgentTurnHttp, readJsonBody } from "./agent-http.js";
 import { VoiceGateway } from "./voice-gateway.js";
 
 installConsoleCapture(debugLogBuffer);
@@ -99,7 +94,6 @@ function requireDebugAuth(
 async function main(): Promise<void> {
   startTelemetry();
   const config = loadConfig();
-  const telegram = resolveTelegramConfig(config);
   const iCloud = resolveICloudCalendarConfig(config);
   const calendarClient = iCloud.enabled
     ? new TsdavICloudCalendarClient(
@@ -205,6 +199,13 @@ async function main(): Promise<void> {
     timeoutMs: Math.round(config.JARVIS_WEATHER_TIMEOUT * 1000),
   });
 
+  const getInstructions = async () => {
+    if (!cachedInstructions) {
+      return refreshInstructions();
+    }
+    return cachedInstructions;
+  };
+
   const voice = new VoiceGateway({
     config,
     tools,
@@ -212,12 +213,7 @@ async function main(): Promise<void> {
     deviceStore,
     reminderStore,
     planStore,
-    getInstructions: async () => {
-      if (!cachedInstructions) {
-        return refreshInstructions();
-      }
-      return cachedInstructions;
-    },
+    getInstructions,
   });
 
   const server = createServer((req, res) => {
@@ -236,6 +232,20 @@ async function main(): Promise<void> {
     if (url === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: true, service: "crea-jarvis2-core" }));
+      return;
+    }
+
+    if (url === "/internal/agent/turn" && req.method === "POST") {
+      void handleAgentTurnHttp(req, res, {
+        apiKey: config.OPENAI_API_KEY,
+        model: config.AGENT_CHAT_MODEL,
+        tools,
+        getInstructions,
+        tokensEqual,
+        gatewayToken: config.JARVIS_GATEWAY_TOKEN,
+        extractBearer,
+        readJsonBody,
+      });
       return;
     }
 
@@ -388,31 +398,6 @@ async function main(): Promise<void> {
   voice.attach(server);
   poller.start();
 
-  let telegramBot: TelegramBotService | null = null;
-  if (telegram.enabled) {
-    const telegramSettings = new TelegramSettingsStore(prisma);
-    telegramBot = new TelegramBotService({
-      telegram,
-      openaiApiKey: config.OPENAI_API_KEY,
-      tools,
-      settings: telegramSettings,
-      getInstructions: async () => {
-        if (!cachedInstructions) {
-          return refreshInstructions();
-        }
-        return cachedInstructions;
-      },
-    });
-    await telegramBot.start();
-  } else {
-    logger.info("[telegram] disabled (no TELEGRAM_BOT_TOKEN)", {
-      component: "telegram",
-      handler: "telegram",
-      step: "start",
-      result: "skipped",
-    });
-  }
-
   server.listen(config.PORT, "0.0.0.0", () => {
     logger.info("[core] listening", {
       component: "core",
@@ -429,9 +414,6 @@ async function main(): Promise<void> {
       step: "finish",
     });
     poller.stop();
-    if (telegramBot) {
-      await telegramBot.stop("shutdown");
-    }
     server.close();
     await prisma.$disconnect();
     await shutdownTelemetry();

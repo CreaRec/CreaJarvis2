@@ -1,26 +1,16 @@
 import { Telegraf } from "telegraf";
-import type { TelegramConfig } from "../config.js";
-import { logger } from "../log.js";
-import { classifyError } from "../telemetry.js";
-import type { ToolGateway } from "../tools/gateway.js";
+import type { BotConfig } from "./config.js";
 import { ChatHandlers } from "./chat-handlers.js";
+import { logger } from "./log.js";
 import { ModeHandlers } from "./mode-handlers.js";
-import type { TelegramSettingsStoreApi } from "./settings-store.js";
 import {
   BOT_HELP_MESSAGE,
   BOT_PRIVATE_MESSAGE,
   isPrivateChat,
   safeReply,
 } from "./telegram-ctx.js";
-
-export interface TelegramBotDeps {
-  telegram: Extract<TelegramConfig, { enabled: true }>;
-  openaiApiKey: string;
-  tools: ToolGateway;
-  settings: TelegramSettingsStoreApi;
-  getInstructions: () => Promise<string>;
-  fetchImpl?: typeof fetch;
-}
+import { classifyError } from "./telemetry.js";
+import type { UsersStore } from "./users-store.js";
 
 export class TelegramBotService {
   private readonly bot: Telegraf;
@@ -28,29 +18,24 @@ export class TelegramBotService {
   private readonly chatHandlers: ChatHandlers;
   private running = false;
 
-  constructor(private readonly deps: TelegramBotDeps) {
-    this.bot = new Telegraf(deps.telegram.botToken);
-    this.modeHandlers = new ModeHandlers(deps.settings);
-    this.chatHandlers = new ChatHandlers({
-      telegram: deps.telegram,
-      openaiApiKey: deps.openaiApiKey,
-      tools: deps.tools,
-      settings: deps.settings,
-      getInstructions: deps.getInstructions,
-      fetchImpl: deps.fetchImpl,
-    });
+  constructor(
+    private readonly config: BotConfig,
+    private readonly users: UsersStore,
+  ) {
+    this.bot = new Telegraf(config.TELEGRAM_BOT_TOKEN);
+    this.modeHandlers = new ModeHandlers(users);
+    this.chatHandlers = new ChatHandlers({ config, users });
     this.registerHandlers();
   }
 
   async start(): Promise<void> {
     if (this.running) return;
     this.running = true;
-    // Don't await forever — launch resolves after polling starts in telegraf 4.
     void this.bot.launch().catch((err) => {
       this.running = false;
       logger.exception("[telegram] bot.launch failed", err, {
         component: "telegram",
-        handler: "telegram",
+        handler: "bot",
         step: "start",
         result: "error",
         error_type: classifyError(err),
@@ -58,7 +43,7 @@ export class TelegramBotService {
     });
     logger.info("[telegram] bot started", {
       component: "telegram",
-      handler: "telegram",
+      handler: "bot",
       step: "start",
     });
   }
@@ -69,7 +54,7 @@ export class TelegramBotService {
     this.bot.stop(reason);
     logger.info("[telegram] bot stopped", {
       component: "telegram",
-      handler: "telegram",
+      handler: "bot",
       step: "stop",
       reason,
     });
@@ -77,14 +62,12 @@ export class TelegramBotService {
 
   private registerHandlers(): void {
     this.bot.use(async (ctx, next) => {
-      if (!isPrivateChat(ctx)) {
-        return;
-      }
+      if (!isPrivateChat(ctx)) return;
       const userId = ctx.from?.id;
-      if (userId == null || !(await this.deps.settings.isAllowed(userId))) {
+      if (userId == null || !(await this.users.isAllowed(userId))) {
         logger.info("[telegram] unauthorized user rejected", {
           component: "telegram",
-          handler: "telegram",
+          handler: "auth",
           step: "auth_reject",
           result: "skipped",
         });
@@ -125,7 +108,6 @@ export class TelegramBotService {
     });
 
     this.bot.on("message", async (ctx) => {
-      // Catch-all for private allowed users with unsupported content.
       if (!isPrivateChat(ctx)) return;
       if ("text" in (ctx.message ?? {}) || "voice" in (ctx.message ?? {})) {
         return;
@@ -136,7 +118,7 @@ export class TelegramBotService {
     this.bot.catch((err, ctx) => {
       logger.exception("[telegram] unhandled bot error", err, {
         component: "telegram",
-        handler: "telegram",
+        handler: "bot",
         step: "catch",
         result: "error",
         error_type: classifyError(err),

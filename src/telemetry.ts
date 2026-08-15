@@ -23,8 +23,7 @@ export type VoiceHandler =
   | "realtime"
   | "tool"
   | "reminder_poll"
-  | "http"
-  | "telegram";
+  | "http";
 
 let telemetry: TelemetryHandle | null = null;
 let sessionsTotal: Counter | null = null;

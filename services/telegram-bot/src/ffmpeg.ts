@@ -23,10 +23,6 @@ export type SpawnFfmpeg = (
   kill?: (signal?: string) => void;
 };
 
-/**
- * Convert OpenAI TTS opus (or other ffmpeg-readable audio) to OGG/Opus for Telegram sendVoice.
- * Uses argv array only — never shell interpolation.
- */
 export async function toTelegramVoiceOgg(
   input: Buffer,
   options: {
@@ -35,14 +31,10 @@ export async function toTelegramVoiceOgg(
     timeoutMs?: number;
   } = {},
 ): Promise<Buffer> {
-  if (input.length === 0) {
-    throw new FfmpegError("empty audio input");
-  }
-
+  if (input.length === 0) throw new FfmpegError("empty audio input");
   const ffmpegPath = options.ffmpegPath ?? "ffmpeg";
   const spawnImpl = options.spawnImpl ?? defaultSpawn;
   const timeoutMs = options.timeoutMs ?? 30_000;
-
   const args = [
     "-hide_banner",
     "-loglevel",
@@ -61,7 +53,6 @@ export async function toTelegramVoiceOgg(
     const child = spawnImpl(ffmpegPath, args);
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
-
     const finish = (err: Error | null, data?: Buffer) => {
       if (settled) return;
       settled = true;
@@ -69,28 +60,23 @@ export async function toTelegramVoiceOgg(
       if (err) reject(err);
       else resolve(data ?? Buffer.alloc(0));
     };
-
     const timer = setTimeout(() => {
       finish(new FfmpegError(`ffmpeg timed out after ${timeoutMs}ms`));
       try {
-        (child as { kill?: (signal?: string) => void }).kill?.("SIGKILL");
+        child.kill?.("SIGKILL");
       } catch {
         // ignore
       }
     }, timeoutMs);
 
-    child.stdout?.on("data", (chunk: Buffer | string) => {
+    child.stdout?.on("data", (chunk) => {
       stdoutChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     });
-    child.stderr?.on("data", (chunk: Buffer | string) => {
+    child.stderr?.on("data", (chunk) => {
       stderrChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     });
     child.on("error", (err) => {
-      finish(
-        new FfmpegError(
-          `ffmpeg spawn failed: ${err instanceof Error ? err.message : String(err)}`,
-        ),
-      );
+      finish(new FfmpegError(`ffmpeg spawn failed: ${err.message}`));
     });
     child.on("close", (code) => {
       if (code !== 0) {
@@ -111,7 +97,6 @@ export async function toTelegramVoiceOgg(
       }
       finish(null, out);
     });
-
     try {
       child.stdin?.end(input);
     } catch (err) {
@@ -128,7 +113,6 @@ function defaultSpawn(command: string, args: string[]) {
   return spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
 }
 
-/** True when buffer already looks like an Ogg container (Telegram-friendly). */
 export function looksLikeOgg(buf: Buffer): boolean {
   return (
     buf.length >= 4 &&

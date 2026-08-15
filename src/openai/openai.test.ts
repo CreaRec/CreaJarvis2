@@ -1,7 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import { createChatCompletion } from "./chat.js";
-import { synthesizeSpeech } from "./speech.js";
-import { transcribeAudio } from "./transcribe.js";
 
 describe("openai http clients", () => {
   it("createChatCompletion maps tools and returns message", async () => {
@@ -33,36 +31,9 @@ describe("openai http clients", () => {
     expect(result.choices[0]!.message.content).toBe("ok");
   });
 
-  it("transcribeAudio returns text", async () => {
-    const fetchImpl = vi.fn(async () =>
-      Response.json({ text: "  привет  " }),
-    );
-    const text = await transcribeAudio({
-      apiKey: "sk",
-      audio: Buffer.from("ogg"),
-      filename: "v.ogg",
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-    });
-    expect(text).toBe("привет");
-  });
-
-  it("synthesizeSpeech returns buffer", async () => {
-    const fetchImpl = vi.fn(async () => new Response(Buffer.from("oggdata")));
-    const buf = await synthesizeSpeech({
-      apiKey: "sk",
-      text: "hi",
-      voice: "marin",
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-    });
-    expect(buf.toString()).toBe("oggdata");
-  });
-
   it("surfaces OpenAI error bodies", async () => {
     const fetchImpl = vi.fn(async () =>
-      Response.json(
-        { error: { message: "rate limit" } },
-        { status: 429 },
-      ),
+      Response.json({ error: { message: "rate limit" } }, { status: 429 }),
     );
     await expect(
       createChatCompletion({

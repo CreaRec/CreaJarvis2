@@ -1,5 +1,5 @@
 import type { Context } from "telegraf";
-import { logger } from "../log.js";
+import { logger } from "./log.js";
 
 export type ReplyFn = (message: string) => Promise<{ message_id?: number }>;
 
@@ -14,8 +14,7 @@ export const BOT_HELP_MESSAGE =
   "/mode voice — отвечать голосовым сообщением";
 
 export function isPrivateChat(ctx: Context): boolean {
-  const chat = ctx.chat;
-  return !!chat && chat.type === "private";
+  return !!ctx.chat && ctx.chat.type === "private";
 }
 
 export function getCommandArgument(ctx: Context): string | undefined {
@@ -27,7 +26,6 @@ export function getCommandArgument(ctx: Context): string | undefined {
   ) {
     return undefined;
   }
-
   const [, ...args] = ctx.message.text.trim().split(/\s+/);
   const argument = args.join(" ").trim();
   return argument || undefined;
@@ -51,8 +49,5 @@ export async function safeReply(
 }
 
 export function formatModeHelp(mode: "text" | "voice"): string {
-  return (
-    `${BOT_HELP_MESSAGE}\n\n` +
-    `Текущий режим ответа: ${mode === "voice" ? "voice" : "text"}.`
-  );
+  return `${BOT_HELP_MESSAGE}\n\nТекущий режим ответа: ${mode}.`;
 }

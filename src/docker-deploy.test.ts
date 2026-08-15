@@ -19,6 +19,14 @@ describe("docker deploy contract", () => {
     expect(compose).toMatch(/OTEL_SERVICE_NAMESPACE:.*apps/);
   });
 
+  it("docker-compose includes telegram-bot sidecar image", async () => {
+    const compose = await readFile(path.join(repoRoot, "docker-compose.yml"), "utf8");
+    expect(compose).toMatch(/telegram-bot:/);
+    expect(compose).toMatch(/ghcr\.io\/crearec\/crea-jarvis2-telegram/);
+    expect(compose).toMatch(/data\/telegram-bot\/users\.json/);
+    expect(compose).toMatch(/JARVIS_BASE_URL: http:\/\/core:8787/);
+  });
+
   it("Dockerfile uses GitHub Packages auth for npm install", async () => {
     const dockerfile = await readFile(path.join(repoRoot, "Dockerfile"), "utf8");
 
@@ -27,9 +35,12 @@ describe("docker deploy contract", () => {
     expect(dockerfile).toMatch(/--mount=type=secret,id=NODE_AUTH_TOKEN/);
   });
 
-  it("Dockerfile installs ffmpeg for Telegram voice packaging", async () => {
-    const dockerfile = await readFile(path.join(repoRoot, "Dockerfile"), "utf8");
-    expect(dockerfile).toMatch(/apt-get install -y openssl ca-certificates ffmpeg/);
+  it("telegram-bot Dockerfile installs ffmpeg", async () => {
+    const dockerfile = await readFile(
+      path.join(repoRoot, "services/telegram-bot/Dockerfile"),
+      "utf8",
+    );
+    expect(dockerfile).toMatch(/ffmpeg/);
   });
 
   it("CI passes NODE_AUTH_TOKEN for npm ci and image builds", async () => {
@@ -43,6 +54,18 @@ describe("docker deploy contract", () => {
     expect(workflow).toMatch(/packages:\s*read/);
   });
 
+  it("CI path filters gate core, telegram service, and bridge publishes", async () => {
+    const workflow = await readFile(
+      path.join(repoRoot, ".github/workflows/ci-cd.yml"),
+      "utf8",
+    );
+
+    expect(workflow).toMatch(/telegram:\s*\n\s+- 'services\/telegram-bot\/\*\*'/);
+    expect(workflow).toMatch(/publish_telegram:/);
+    expect(workflow).toMatch(/TELEGRAM_IMAGE/);
+    expect(workflow).toMatch(/crea-jarvis2-telegram/);
+  });
+
   it("CI prunes GHCR to keep 10 sha-* tags and preserve main", async () => {
     const workflow = await readFile(
       path.join(repoRoot, ".github/workflows/ci-cd.yml"),
@@ -52,6 +75,7 @@ describe("docker deploy contract", () => {
     expect(workflow).toMatch(/ghcr_cleanup:/);
     expect(workflow).toMatch(/dataaxiom\/ghcr-cleanup-action@v1/);
     expect(workflow).toMatch(/packages:\s*crea-jarvis2\b/);
+    expect(workflow).toMatch(/packages:\s*crea-jarvis2-telegram\b/);
     expect(workflow).toMatch(/packages:\s*crea-jarvis2-esp-syslog\b/);
     expect(workflow).toMatch(/delete-tags:\s*sha-\*/);
     expect(workflow).toMatch(/keep-n-tagged:\s*"10"/);

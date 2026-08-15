@@ -19,6 +19,8 @@ const envSchema = z.object({
   EMBEDDING_MODEL: z.string().default("text-embedding-3-small"),
   EMBEDDING_DIMENSIONS: z.coerce.number().default(1536),
   REALTIME_MODEL: z.string().default("gpt-realtime-2.1"),
+  /** Chat Completions model for /internal/agent/turn (Telegram proxy, etc.). */
+  AGENT_CHAT_MODEL: z.string().default("gpt-4o"),
   VOICE: z.string().default("marin"),
   VOICE_GATEWAY_URL: z.string().default("ws://127.0.0.1:8787/voice"),
   JARVIS_GATEWAY_TOKEN: z.string().min(8),
@@ -44,20 +46,6 @@ const envSchema = z.object({
   ICLOUD_CALDAV_USERNAME: z.string().default(""),
   ICLOUD_CALDAV_PASSWORD: z.string().default(""),
   ICLOUD_CALDAV_CALENDAR_URL: z.string().default(""),
-  /** Empty token disables Telegram integration. Allowlist is DB-only (`telegram_chat_settings`). */
-  TELEGRAM_BOT_TOKEN: z.string().default(""),
-  TELEGRAM_CHAT_MODEL: z.string().default("gpt-4o"),
-  TELEGRAM_TTS_VOICE: z.string().default("marin"),
-  TELEGRAM_TTS_MODEL: z.string().default("gpt-4o-mini-tts"),
-  TELEGRAM_STT_MODEL: z.string().default("whisper-1"),
-  /** Max Telegram voice file size in bytes (default 20 MiB). */
-  TELEGRAM_MAX_VOICE_BYTES: z.coerce.number().int().positive().default(20_971_520),
-  /** Max Telegram voice duration in seconds (default 120). */
-  TELEGRAM_MAX_VOICE_DURATION_SEC: z.coerce
-    .number()
-    .int()
-    .positive()
-    .default(120),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;
@@ -86,37 +74,6 @@ export function resolveICloudCalendarConfig(
     );
   }
   return { enabled: true, username, password, calendarUrl };
-}
-
-export type TelegramConfig =
-  | { enabled: false }
-  | {
-      enabled: true;
-      botToken: string;
-      chatModel: string;
-      ttsVoice: string;
-      ttsModel: string;
-      sttModel: string;
-      maxVoiceBytes: number;
-      maxVoiceDurationSec: number;
-    };
-
-/** Empty token → disabled; non-empty token → enabled (allowlist lives in DB). */
-export function resolveTelegramConfig(config: AppConfig): TelegramConfig {
-  const botToken = config.TELEGRAM_BOT_TOKEN.trim();
-  if (!botToken) {
-    return { enabled: false };
-  }
-  return {
-    enabled: true,
-    botToken,
-    chatModel: config.TELEGRAM_CHAT_MODEL.trim() || "gpt-4o",
-    ttsVoice: config.TELEGRAM_TTS_VOICE.trim() || "marin",
-    ttsModel: config.TELEGRAM_TTS_MODEL.trim() || "gpt-4o-mini-tts",
-    sttModel: config.TELEGRAM_STT_MODEL.trim() || "whisper-1",
-    maxVoiceBytes: config.TELEGRAM_MAX_VOICE_BYTES,
-    maxVoiceDurationSec: config.TELEGRAM_MAX_VOICE_DURATION_SEC,
-  };
 }
 
 export function loadConfig(

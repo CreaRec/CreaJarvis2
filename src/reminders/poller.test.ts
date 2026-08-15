@@ -41,13 +41,7 @@ function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     ICLOUD_CALDAV_USERNAME: "",
     ICLOUD_CALDAV_PASSWORD: "",
     ICLOUD_CALDAV_CALENDAR_URL: "",
-    TELEGRAM_BOT_TOKEN: "",
-    TELEGRAM_CHAT_MODEL: "gpt-4o",
-    TELEGRAM_TTS_VOICE: "marin",
-    TELEGRAM_TTS_MODEL: "gpt-4o-mini-tts",
-    TELEGRAM_STT_MODEL: "whisper-1",
-    TELEGRAM_MAX_VOICE_BYTES: 20_971_520,
-    TELEGRAM_MAX_VOICE_DURATION_SEC: 120,
+    AGENT_CHAT_MODEL: "gpt-4o",
     ...overrides,
   };
 }
