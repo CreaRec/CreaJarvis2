@@ -1,18 +1,36 @@
-import type { Context } from "telegraf";
+import { Markup, type Context } from "telegraf";
 import { logger } from "./log.js";
 
 export type ReplyFn = (message: string) => Promise<{ message_id?: number }>;
 
 export const BOT_PRIVATE_MESSAGE = "This bot is private.";
 
+export const BTN_MODE = "mode";
+export const BTN_NEW = "new";
+
+export const MAIN_KEYBOARD = Markup.keyboard([[BTN_MODE, BTN_NEW]])
+  .resize()
+  .persistent();
+
 export const BOT_HELP_MESSAGE =
   "Я Jarvis в Telegram. Пришли текст или голосовое сообщение.\n" +
+  "Кнопки: mode — режим ответа, new — сбросить контекст.\n" +
   "Команды:\n" +
   "/start — справка\n" +
   "/new — сбросить контекст диалога\n" +
   "/mode — показать режим ответа\n" +
   "/mode text — отвечать текстом\n" +
   "/mode voice — отвечать голосовым сообщением";
+
+/** Maps reply-keyboard labels to bot actions (case-insensitive). */
+export function matchKeyboardAction(
+  text: string,
+): "mode" | "new" | undefined {
+  const normalized = text.trim().toLowerCase();
+  if (normalized === BTN_MODE) return "mode";
+  if (normalized === BTN_NEW) return "new";
+  return undefined;
+}
 
 export function isPrivateChat(ctx: Context): boolean {
   return !!ctx.chat && ctx.chat.type === "private";

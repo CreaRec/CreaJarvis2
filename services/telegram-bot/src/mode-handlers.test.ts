@@ -17,4 +17,25 @@ describe("ModeHandlers", () => {
     await handlers.handleMode(ctx as never, 1);
     expect(users.setReplyMode).toHaveBeenCalledWith(1, "voice");
   });
+
+  it("attaches main keyboard on /start", async () => {
+    const users: UsersStore = {
+      isAllowed: vi.fn(async () => true),
+      getReplyMode: vi.fn(async () => "voice" as const),
+      setReplyMode: vi.fn(async (_id, m) => m),
+    };
+    const handlers = new ModeHandlers(users);
+    const ctx = {
+      reply: vi.fn(async () => ({ message_id: 1 })),
+    };
+    await handlers.handleStart(ctx as never, 1);
+    expect(ctx.reply).toHaveBeenCalledTimes(1);
+    const [text, extra] = ctx.reply.mock.calls[0]!;
+    expect(text).toContain("Текущий режим ответа: voice.");
+    expect(extra.reply_markup).toMatchObject({
+      keyboard: [["mode", "new"]],
+      resize_keyboard: true,
+      is_persistent: true,
+    });
+  });
 });

@@ -4,6 +4,7 @@ import type { ReplyMode, UsersStore } from "./users-store.js";
 import {
   formatModeHelp,
   getCommandArgument,
+  MAIN_KEYBOARD,
   safeReply,
 } from "./telegram-ctx.js";
 
@@ -17,7 +18,10 @@ export class ModeHandlers {
       handler: "start",
       step: "reply",
     });
-    await safeReply((text) => ctx.reply(text), formatModeHelp(mode));
+    await safeReply(
+      (text) => ctx.reply(text, MAIN_KEYBOARD),
+      formatModeHelp(mode),
+    );
   }
 
   async handleMode(ctx: Context, userId: number): Promise<void> {

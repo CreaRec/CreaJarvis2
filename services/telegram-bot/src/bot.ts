@@ -7,6 +7,7 @@ import {
   BOT_HELP_MESSAGE,
   BOT_PRIVATE_MESSAGE,
   isPrivateChat,
+  matchKeyboardAction,
   safeReply,
 } from "./telegram-ctx.js";
 import { classifyError } from "./telemetry.js";
@@ -104,6 +105,15 @@ export class TelegramBotService {
       if (userId == null) return;
       const text = ctx.message.text;
       if (text.startsWith("/")) return;
+      const action = matchKeyboardAction(text);
+      if (action === "mode") {
+        await this.modeHandlers.handleMode(ctx, userId);
+        return;
+      }
+      if (action === "new") {
+        await this.chatHandlers.handleNew(ctx, userId);
+        return;
+      }
       await this.chatHandlers.handleText(ctx, userId, text);
     });
 
