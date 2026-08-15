@@ -6,6 +6,7 @@ import type { ReminderStore } from "../reminders/store.js";
 import { ToolGateway } from "./gateway.js";
 import { createCalendarTools } from "./calendar-tools.js";
 import { createReminderTools } from "./reminder-tools.js";
+import { logger } from "../log.js";
 
 function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
@@ -252,6 +253,7 @@ describe("createCalendarTools", () => {
   });
 
   it("enriches list with reminder_id", async () => {
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => undefined);
     const store = makeStore({
       getByCalendarUids: vi.fn().mockResolvedValue([
         makeRecord({
@@ -318,6 +320,57 @@ describe("createCalendarTools", () => {
       expect(data.events[0]?.end_local).toBeTruthy();
       expect(data.events[0]?.start_local).not.toMatch(/Z$/);
     }
+    expect(infoSpy).toHaveBeenCalledWith(
+      "[calendar] list",
+      expect.objectContaining({
+        component: "calendar",
+        handler: "tool",
+        step: "finish",
+        tool: "calendar_list",
+        result: "success",
+        count: 2,
+        from_defaulted: true,
+        to_defaulted: true,
+        limit: 30,
+      }),
+    );
+    infoSpy.mockRestore();
+  });
+
+  it("logs calendar_list CalDAV failures with resolved range", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    const calendar = makeCalendar({
+      listEvents: vi.fn().mockResolvedValue({
+        ok: false,
+        error: "CalDAV timeout",
+      }),
+    });
+    const gw = new ToolGateway();
+    for (const tool of createCalendarTools({
+      calendar,
+      store: makeStore(),
+      config: makeConfig(),
+    })) {
+      gw.register(tool);
+    }
+    const result = await gw.execute("calendar_list", {
+      from: "2026-08-01T00:00:00.000Z",
+      to: "2026-09-01T00:00:00.000Z",
+    });
+    expect(result.ok).toBe(false);
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[calendar] list failed",
+      expect.objectContaining({
+        tool: "calendar_list",
+        result: "error",
+        from: "2026-08-01T00:00:00.000Z",
+        to: "2026-09-01T00:00:00.000Z",
+        from_defaulted: false,
+        to_defaulted: false,
+        error_message: "CalDAV timeout",
+      }),
+    );
+    warnSpy.mockRestore();
   });
 
   it("deletes by reminder_id and clears link", async () => {

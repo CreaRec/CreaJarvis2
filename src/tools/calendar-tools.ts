@@ -10,6 +10,7 @@ import { DEFAULT_ALARM_MINUTES_BEFORE } from "../calendar/ics.js";
 import { formatLocal } from "../utils/time/index.js";
 import { toPublic, type ReminderStore } from "../reminders/store.js";
 import type { ReminderRecord } from "../reminders/types.js";
+import { logger, truncateForLog } from "../log.js";
 import { type ToolDefinition, z } from "./gateway.js";
 
 const alarmMinutesBeforeSchema = z
@@ -443,7 +444,10 @@ export function createCalendarTools(deps: {
         if (!parsed.success) {
           return { ok: false, error: parsed.error.message };
         }
+        const started = Date.now();
         const now = new Date();
+        const fromDefaulted = !parsed.data.from;
+        const toDefaulted = !parsed.data.to;
         const from = parsed.data.from ? parseIso(parsed.data.from) : now;
         const to = parsed.data.to
           ? parseIso(parsed.data.to)
@@ -451,12 +455,27 @@ export function createCalendarTools(deps: {
         if (!from || !to) {
           return { ok: false, error: "Invalid from/to ISO timestamp" };
         }
+        const limit = parsed.data.limit ?? 30;
         const listed = await deps.calendar.listEvents({
           from,
           to,
-          limit: parsed.data.limit ?? 30,
+          limit,
         });
         if (!listed.ok) {
+          logger.warn("[calendar] list failed", {
+            component: "calendar",
+            handler: "tool",
+            step: "finish",
+            tool: "calendar_list",
+            result: "error",
+            from: from.toISOString(),
+            to: to.toISOString(),
+            limit,
+            from_defaulted: fromDefaulted,
+            to_defaulted: toDefaulted,
+            duration_ms: Date.now() - started,
+            error_message: truncateForLog(listed.error),
+          });
           return { ok: false, error: listed.error };
         }
         const links = await deps.store.getByCalendarUids(
@@ -477,6 +496,20 @@ export function createCalendarTools(deps: {
             reminder_id: byUid.get(e.uid) ?? null,
             ...publicOptionalDateTimes(start, end, timeZone),
           };
+        });
+        logger.info("[calendar] list", {
+          component: "calendar",
+          handler: "tool",
+          step: "finish",
+          tool: "calendar_list",
+          result: "success",
+          from: from.toISOString(),
+          to: to.toISOString(),
+          limit,
+          count: events.length,
+          from_defaulted: fromDefaulted,
+          to_defaulted: toDefaulted,
+          duration_ms: Date.now() - started,
         });
         return { ok: true, data: { events, count: events.length } };
       },

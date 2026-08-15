@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { runAgentTurn } from "./turn.js";
 import { ToolGateway } from "../tools/gateway.js";
+import { logger } from "../log.js";
 
 describe("runAgentTurn", () => {
   it("returns assistant text without tools", async () => {
@@ -31,12 +32,13 @@ describe("runAgentTurn", () => {
   });
 
   it("executes tool calls then returns final text", async () => {
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => undefined);
     const tools = new ToolGateway();
     tools.register({
       name: "ping",
       description: "ping",
       parameters: { type: "object", properties: {} },
-      handler: async () => ({ ok: true, data: { pong: true } }),
+      handler: async () => ({ ok: true, data: { pong: true, count: 1 } }),
     });
 
     const fetchImpl = vi
@@ -84,9 +86,19 @@ describe("runAgentTurn", () => {
     expect(result.text).toBe("pong");
     expect(result.iterations).toBe(2);
     expect(result.toolResults).toEqual([
-      { name: "ping", result: { ok: true, data: { pong: true } } },
+      { name: "ping", result: { ok: true, data: { pong: true, count: 1 } } },
     ]);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(infoSpy).toHaveBeenCalledWith(
+      "[agent] tool call finished",
+      expect.objectContaining({
+        tool: "ping",
+        step: "finish",
+        result: "success",
+        count: 1,
+      }),
+    );
+    infoSpy.mockRestore();
   });
 
   it("includes prior messages between system and current user", async () => {

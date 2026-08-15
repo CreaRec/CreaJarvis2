@@ -3,6 +3,10 @@ import type { AppConfig } from "../config.js";
 import { logger } from "../log.js";
 import { classifyError, recordVoiceError } from "../telemetry.js";
 import { parseJsonArgs, type ToolGateway } from "../tools/gateway.js";
+import {
+  logToolCallFinished,
+  toolArgsSummaryAttrs,
+} from "../tools/tool-log.js";
 
 export type RealtimeEventHandler = (
   event: Record<string, unknown>,
@@ -339,7 +343,9 @@ export class RealtimeClient {
       handler: "tool",
       step: "start",
       tool: name,
+      ...toolArgsSummaryAttrs(args),
     });
+    const started = Date.now();
     try {
       const result = await this.opts.tools.execute(name, args);
       if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
@@ -350,6 +356,8 @@ export class RealtimeClient {
           result: "error",
           tool: name,
           error_type: "network",
+          duration_ms: Date.now() - started,
+          ...toolArgsSummaryAttrs(args),
         });
         return;
       }
@@ -362,12 +370,13 @@ export class RealtimeClient {
         },
       });
       this.send({ type: "response.create" });
-      logger.info("[tools] call finished", {
+      logToolCallFinished({
+        message: "[tools] call finished",
         component: "realtime",
-        handler: "tool",
-        step: "finish",
-        result: "success",
         tool: name,
+        args,
+        result,
+        durationMs: Date.now() - started,
       });
     } catch (err) {
       const errorType = classifyError(err);
@@ -379,6 +388,8 @@ export class RealtimeClient {
         result: "error",
         tool: name,
         error_type: errorType,
+        duration_ms: Date.now() - started,
+        ...toolArgsSummaryAttrs(args),
       });
       if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
       try {

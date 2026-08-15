@@ -9,6 +9,10 @@ import {
   type ToolGateway,
   type ToolResult,
 } from "../tools/gateway.js";
+import {
+  logToolCallFinished,
+  toolArgsSummaryAttrs,
+} from "../tools/tool-log.js";
 import { logger } from "../log.js";
 import { classifyError } from "../telemetry.js";
 
@@ -99,21 +103,33 @@ async function executeToolCall(
   logger.info("[agent] tool call", {
     component: "agent",
     handler: "tool",
-    step: "execute",
+    step: "start",
     tool: name,
+    ...toolArgsSummaryAttrs(args),
   });
 
+  const started = Date.now();
   try {
     const result = await tools.execute(name, args);
+    logToolCallFinished({
+      message: "[agent] tool call finished",
+      component: "agent",
+      tool: name,
+      args,
+      result,
+      durationMs: Date.now() - started,
+    });
     return { name, result };
   } catch (err) {
     logger.exception("[agent] tool execute failed", err, {
       component: "agent",
       handler: "tool",
-      step: "execute",
+      step: "finish",
       tool: name,
       result: "error",
       error_type: classifyError(err),
+      duration_ms: Date.now() - started,
+      ...toolArgsSummaryAttrs(args),
     });
     return {
       name,

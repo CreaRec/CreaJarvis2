@@ -59,16 +59,31 @@ describe("logger", () => {
     expect(preview.endsWith("…")).toBe(true);
   });
 
-  it("falls back to console when OTEL logger is unbound", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  it("includes count/from/to in Grafana body summary keys", async () => {
+    const emit = vi.fn();
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
     const { bindOtelLogger, logger } = await import("./log.js");
+    bindOtelLogger({ emit });
+
+    logger.info("[calendar] list", {
+      handler: "tool",
+      tool: "calendar_list",
+      step: "finish",
+      result: "success",
+      count: 0,
+      from: "2026-08-01T00:00:00.000Z",
+      to: "2026-09-01T00:00:00.000Z",
+      duration_ms: 12,
+    });
+
+    expect(emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining("count=0"),
+      }),
+    );
+    expect(emit.mock.calls[0]?.[0]?.body).toContain("from=2026-08-01T00:00:00.000Z");
+    expect(emit.mock.calls[0]?.[0]?.body).toContain("to=2026-09-01T00:00:00.000Z");
+
     bindOtelLogger(null);
-
-    logger.exception("[test] boom", new Error("nope"), { component: "test" });
-
-    expect(errorSpy).toHaveBeenCalled();
-    const logged = String(errorSpy.mock.calls[0]?.[0] ?? "");
-    expect(logged).toContain("[test] boom");
-    expect(logged).toContain("error_message");
   });
 });

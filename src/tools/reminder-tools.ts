@@ -12,6 +12,7 @@ import {
   deleteLinkedCalendarEvent,
   syncCalendarAfterReminderUpdate,
 } from "./calendar-tools.js";
+import { logger } from "../log.js";
 import { type ToolDefinition, z } from "./gateway.js";
 
 const recurrenceSchema = z.discriminatedUnion("kind", [
@@ -188,7 +189,10 @@ export function createReminderTools(deps: {
         if (!parsed.success) {
           return { ok: false, error: parsed.error.message };
         }
+        const started = Date.now();
         const now = new Date();
+        const fromDefaulted = !parsed.data.from;
+        const toDefaulted = !parsed.data.to;
         const from = parsed.data.from
           ? parseFireAt(parsed.data.from)
           : now;
@@ -198,6 +202,7 @@ export function createReminderTools(deps: {
         if (!from || !to) {
           return { ok: false, error: "Invalid from/to ISO timestamp" };
         }
+        const limit = parsed.data.limit ?? 30;
         const statuses = parsed.data.status
           ? [parsed.data.status]
           : (["pending", "snoozed", "missed"] as const);
@@ -205,7 +210,22 @@ export function createReminderTools(deps: {
           from,
           to,
           statuses: [...statuses],
-          limit: parsed.data.limit ?? 30,
+          limit,
+        });
+        logger.info("[reminders] list", {
+          component: "reminders",
+          handler: "tool",
+          step: "finish",
+          tool: "reminder_list",
+          result: "success",
+          from: from.toISOString(),
+          to: to.toISOString(),
+          limit,
+          count: rows.length,
+          from_defaulted: fromDefaulted,
+          to_defaulted: toDefaulted,
+          status: parsed.data.status ?? "pending,snoozed,missed",
+          duration_ms: Date.now() - started,
         });
         return {
           ok: true,

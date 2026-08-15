@@ -4,6 +4,7 @@ import type { ReminderRecord } from "../reminders/types.js";
 import type { ReminderStore } from "../reminders/store.js";
 import { ToolGateway } from "./gateway.js";
 import { createReminderTools } from "./reminder-tools.js";
+import { logger } from "../log.js";
 
 function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
@@ -335,6 +336,34 @@ describe("createReminderTools", () => {
       expect(arg.todayEnd.getTime() - arg.todayStart.getTime()).toBeGreaterThan(
         20 * 60 * 60 * 1000,
       );
+    });
+  });
+
+  describe("reminder_list", () => {
+    it("logs resolved range and count", async () => {
+      const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => undefined);
+      const store = makeStore({
+        list: vi.fn().mockResolvedValue([makeRecord()]),
+      });
+      const gw = gatewayWith(store);
+      const result = await gw.execute("reminder_list", {
+        from: "2026-08-01T00:00:00.000Z",
+        to: "2026-09-01T00:00:00.000Z",
+      });
+      expect(result.ok).toBe(true);
+      expect(infoSpy).toHaveBeenCalledWith(
+        "[reminders] list",
+        expect.objectContaining({
+          tool: "reminder_list",
+          result: "success",
+          count: 1,
+          from: "2026-08-01T00:00:00.000Z",
+          to: "2026-09-01T00:00:00.000Z",
+          from_defaulted: false,
+          to_defaulted: false,
+        }),
+      );
+      infoSpy.mockRestore();
     });
   });
 });
