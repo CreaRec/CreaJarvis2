@@ -5,6 +5,12 @@ import { z } from "zod";
 
 export type ReplyMode = "text" | "voice";
 
+export interface UsersStoreLike {
+  isAllowed(userId: number): Promise<boolean>;
+  getReplyMode(userId: number): Promise<ReplyMode>;
+  setReplyMode(userId: number, replyMode: ReplyMode): Promise<ReplyMode>;
+}
+
 const userSchema = z.object({
   replyMode: z.enum(["text", "voice"]).default("text"),
 });
@@ -13,7 +19,7 @@ const usersFileSchema = z.record(z.string(), userSchema);
 
 export type UsersFile = z.infer<typeof usersFileSchema>;
 
-export class UsersStore {
+export class UsersStore implements UsersStoreLike {
   constructor(private readonly path: string) {}
 
   async isAllowed(userId: number): Promise<boolean> {

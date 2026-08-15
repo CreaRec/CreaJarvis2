@@ -1,14 +1,15 @@
 import type { Context } from "telegraf";
 import { logger } from "./log.js";
-import type { ReplyMode, UsersStore } from "./users-store.js";
+import type { ReplyMode, UsersStoreLike } from "./users-store.js";
 import {
   formatModeHelp,
   getCommandArgument,
+  otherReplyMode,
   replyWithMainKeyboard,
 } from "./telegram-ctx.js";
 
 export class ModeHandlers {
-  constructor(private readonly users: UsersStore) {}
+  constructor(private readonly users: UsersStoreLike) {}
 
   async handleStart(ctx: Context, userId: number): Promise<void> {
     const mode = await this.users.getReplyMode(userId);
@@ -17,7 +18,15 @@ export class ModeHandlers {
       handler: "start",
       step: "reply",
     });
-    await replyWithMainKeyboard(ctx, formatModeHelp(mode));
+    await replyWithMainKeyboard(ctx, formatModeHelp(mode), mode);
+  }
+
+  async handleModeButton(
+    ctx: Context,
+    userId: number,
+    shown: ReplyMode,
+  ): Promise<void> {
+    await this.applyMode(ctx, userId, otherReplyMode(shown));
   }
 
   async handleMode(ctx: Context, userId: number): Promise<void> {
@@ -26,18 +35,29 @@ export class ModeHandlers {
       const mode = await this.users.getReplyMode(userId);
       await replyWithMainKeyboard(
         ctx,
-        `Режим ответа: ${mode}.\nИспользуй /mode text или /mode voice.`,
+        `Режим ответа: ${mode}. Нажми кнопку, чтобы переключить.`,
+        mode,
       );
       return;
     }
     if (arg !== "text" && arg !== "voice") {
+      const mode = await this.users.getReplyMode(userId);
       await replyWithMainKeyboard(
         ctx,
         "Неизвестный режим. Используй /mode text или /mode voice.",
+        mode,
       );
       return;
     }
-    const mode = await this.users.setReplyMode(userId, arg as ReplyMode);
+    await this.applyMode(ctx, userId, arg);
+  }
+
+  private async applyMode(
+    ctx: Context,
+    userId: number,
+    next: ReplyMode,
+  ): Promise<void> {
+    const mode = await this.users.setReplyMode(userId, next);
     logger.info("[telegram] mode changed", {
       component: "telegram",
       handler: "mode",
@@ -48,6 +68,7 @@ export class ModeHandlers {
     await replyWithMainKeyboard(
       ctx,
       `Ок, буду отвечать ${mode === "voice" ? "голосом" : "текстом"}.`,
+      mode,
     );
   }
 }

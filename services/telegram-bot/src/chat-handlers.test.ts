@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { ChatHandlers } from "./chat-handlers.js";
 import type { BotConfig } from "./config.js";
-import { MAIN_KEYBOARD } from "./telegram-ctx.js";
-import type { UsersStore } from "./users-store.js";
+import { mainKeyboard } from "./telegram-ctx.js";
+import type { UsersStoreLike } from "./users-store.js";
 
 function makeConfig(): BotConfig {
   return {
@@ -23,7 +23,7 @@ function makeConfig(): BotConfig {
 
 describe("ChatHandlers", () => {
   it("proxies text to jarvis with userId and replies", async () => {
-    const users: UsersStore = {
+    const users: UsersStoreLike = {
       isAllowed: vi.fn(async () => true),
       getReplyMode: vi.fn(async () => "text" as const),
       setReplyMode: vi.fn(async (_id, m) => m),
@@ -45,11 +45,11 @@ describe("ChatHandlers", () => {
         userId: "42",
       }),
     );
-    expect(ctx.reply).toHaveBeenCalledWith("ответ", MAIN_KEYBOARD);
+    expect(ctx.reply).toHaveBeenCalledWith("ответ", mainKeyboard("text"));
   });
 
   it("clears session on /new", async () => {
-    const users: UsersStore = {
+    const users: UsersStoreLike = {
       isAllowed: vi.fn(async () => true),
       getReplyMode: vi.fn(async () => "text" as const),
       setReplyMode: vi.fn(async (_id, m) => m),
@@ -67,11 +67,14 @@ describe("ChatHandlers", () => {
     expect(clearSession).toHaveBeenCalledWith(
       expect.objectContaining({ userId: "7" }),
     );
-    expect(ctx.reply).toHaveBeenCalledWith("Контекст сброшен.", MAIN_KEYBOARD);
+    expect(ctx.reply).toHaveBeenCalledWith(
+      "Контекст сброшен.",
+      mainKeyboard("text"),
+    );
   });
 
   it("stages photo without caption via inboxAdd", async () => {
-    const users: UsersStore = {
+    const users: UsersStoreLike = {
       isAllowed: vi.fn(async () => true),
       getReplyMode: vi.fn(async () => "text" as const),
       setReplyMode: vi.fn(async (_id, m) => m),
@@ -105,7 +108,7 @@ describe("ChatHandlers", () => {
     );
     expect(ctx.reply).toHaveBeenCalledWith(
       expect.stringContaining("Сохранил (1)"),
-      MAIN_KEYBOARD,
+      mainKeyboard("text"),
     );
   });
 });

@@ -12,7 +12,7 @@ import {
   safeReply,
 } from "./telegram-ctx.js";
 import { classifyError } from "./telemetry.js";
-import type { UsersStore } from "./users-store.js";
+import type { UsersStoreLike } from "./users-store.js";
 
 export class TelegramBotService {
   private readonly bot: Telegraf;
@@ -22,7 +22,7 @@ export class TelegramBotService {
 
   constructor(
     private readonly config: BotConfig,
-    private readonly users: UsersStore,
+    private readonly users: UsersStoreLike,
   ) {
     this.bot = new Telegraf(config.TELEGRAM_BOT_TOKEN);
     this.modeHandlers = new ModeHandlers(users);
@@ -107,8 +107,8 @@ export class TelegramBotService {
       const text = ctx.message.text;
       if (text.startsWith("/")) return;
       const action = matchKeyboardAction(text);
-      if (action === "mode") {
-        await this.modeHandlers.handleMode(ctx, userId);
+      if (action === "text" || action === "voice") {
+        await this.modeHandlers.handleModeButton(ctx, userId, action);
         return;
       }
       if (action === "new") {
@@ -147,7 +147,10 @@ export class TelegramBotService {
       ) {
         return;
       }
-      await replyWithMainKeyboard(ctx, BOT_HELP_MESSAGE);
+      const userId = ctx.from?.id;
+      if (userId == null) return;
+      const mode = await this.users.getReplyMode(userId);
+      await replyWithMainKeyboard(ctx, BOT_HELP_MESSAGE, mode);
     });
 
     this.bot.catch((err, ctx) => {
