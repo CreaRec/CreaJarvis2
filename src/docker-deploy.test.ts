@@ -27,6 +27,11 @@ describe("docker deploy contract", () => {
     expect(dockerfile).toMatch(/--mount=type=secret,id=NODE_AUTH_TOKEN/);
   });
 
+  it("Dockerfile installs ffmpeg for Telegram voice packaging", async () => {
+    const dockerfile = await readFile(path.join(repoRoot, "Dockerfile"), "utf8");
+    expect(dockerfile).toMatch(/apt-get install -y openssl ca-certificates ffmpeg/);
+  });
+
   it("CI passes NODE_AUTH_TOKEN for npm ci and image builds", async () => {
     const workflow = await readFile(
       path.join(repoRoot, ".github/workflows/ci-cd.yml"),

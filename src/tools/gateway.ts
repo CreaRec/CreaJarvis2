@@ -28,13 +28,26 @@ export class ToolGateway {
     this.tools.set(tool.name, tool);
   }
 
+  /** Neutral tool schemas for Chat Completions / other HTTP agents. */
+  listTools(): Array<{
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  }> {
+    return [...this.tools.values()].map((t) => ({
+      name: t.name,
+      description: t.description,
+      parameters: t.parameters,
+    }));
+  }
+
   listRealtimeTools(): Array<{
     type: "function";
     name: string;
     description: string;
     parameters: Record<string, unknown>;
   }> {
-    return [...this.tools.values()].map((t) => ({
+    return this.listTools().map((t) => ({
       type: "function" as const,
       name: t.name,
       description: t.description,

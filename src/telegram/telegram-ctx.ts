@@ -1,0 +1,58 @@
+import type { Context } from "telegraf";
+import { logger } from "../log.js";
+
+export type ReplyFn = (message: string) => Promise<{ message_id?: number }>;
+
+export const BOT_PRIVATE_MESSAGE = "This bot is private.";
+
+export const BOT_HELP_MESSAGE =
+  "Я Jarvis в Telegram. Пришли текст или голосовое сообщение.\n" +
+  "Команды:\n" +
+  "/start — справка\n" +
+  "/mode — показать режим ответа\n" +
+  "/mode text — отвечать текстом\n" +
+  "/mode voice — отвечать голосовым сообщением";
+
+export function isPrivateChat(ctx: Context): boolean {
+  const chat = ctx.chat;
+  return !!chat && chat.type === "private";
+}
+
+export function getCommandArgument(ctx: Context): string | undefined {
+  if (
+    !("message" in ctx) ||
+    !ctx.message ||
+    !("text" in ctx.message) ||
+    typeof ctx.message.text !== "string"
+  ) {
+    return undefined;
+  }
+
+  const [, ...args] = ctx.message.text.trim().split(/\s+/);
+  const argument = args.join(" ").trim();
+  return argument || undefined;
+}
+
+export async function safeReply(
+  reply: ReplyFn,
+  message: string,
+): Promise<{ message_id?: number } | undefined> {
+  try {
+    return await reply(message);
+  } catch (error) {
+    logger.exception("[telegram] failed to send reply", error, {
+      component: "telegram",
+      handler: "telegram",
+      step: "reply",
+      result: "error",
+    });
+    return undefined;
+  }
+}
+
+export function formatModeHelp(mode: "text" | "voice"): string {
+  return (
+    `${BOT_HELP_MESSAGE}\n\n` +
+    `Текущий режим ответа: ${mode === "voice" ? "voice" : "text"}.`
+  );
+}

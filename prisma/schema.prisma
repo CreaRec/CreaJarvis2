@@ -225,3 +225,18 @@ model Device {
   @@index([archived, lastSeenAt])
   @@map("devices")
 }
+
+enum TelegramReplyMode {
+  text
+  voice
+}
+
+model TelegramChatSettings {
+  /// Presence of a row = allowed Telegram user (insert manually).
+  telegramUserId BigInt            @id
+  replyMode      TelegramReplyMode @default(text)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@map("telegram_chat_settings")
+}

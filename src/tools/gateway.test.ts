@@ -61,7 +61,7 @@ describe("ToolGateway", () => {
     expect(gw.auditLog[0]).toMatchObject({ ok: false, error: "kaboom" });
   });
 
-  it("lists tools in realtime format", () => {
+  it("lists tools in neutral and realtime formats", () => {
     const gw = new ToolGateway();
     gw.register({
       name: "t",
@@ -69,6 +69,13 @@ describe("ToolGateway", () => {
       parameters: { type: "object" },
       handler: async () => ({ ok: true, data: null }),
     });
+    expect(gw.listTools()).toEqual([
+      {
+        name: "t",
+        description: "d",
+        parameters: { type: "object" },
+      },
+    ]);
     expect(gw.listRealtimeTools()).toEqual([
       {
         type: "function",

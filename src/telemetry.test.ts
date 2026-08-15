@@ -126,6 +126,40 @@ describe("telemetry", () => {
     await shutdownTelemetry();
   });
 
+  it("records telegram handler on handled session", async () => {
+    const {
+      startTelemetry,
+      recordHandledSession,
+      recordVoiceError,
+      shutdownTelemetry,
+    } = await import("./telemetry.js");
+    startTelemetry();
+    recordHandledSession({
+      result: "success",
+      durationSeconds: 0.5,
+      handler: "telegram",
+    });
+    recordHandledSession({
+      result: "skipped",
+      durationSeconds: 0,
+      handler: "telegram",
+    });
+    recordVoiceError({ errorType: "network", handler: "telegram" });
+    expect(otel.sessionDuration.record).toHaveBeenCalledWith(0.5, {
+      result: "success",
+      handler: "telegram",
+    });
+    expect(otel.sessionDuration.record).toHaveBeenCalledWith(0, {
+      result: "skipped",
+      handler: "telegram",
+    });
+    expect(otel.errorsTotal.add).toHaveBeenCalledWith(1, {
+      error_type: "network",
+      handler: "telegram",
+    });
+    await shutdownTelemetry();
+  });
+
   it("runs work inside a voice session span", async () => {
     const { startTelemetry, withVoiceSessionSpan, shutdownTelemetry } =
       await import("./telemetry.js");
