@@ -13,7 +13,12 @@ import {
 import { toPublic, type EventStore } from "../events/store.js";
 import type { EventRecord } from "../events/types.js";
 import { syncAppleCalendarToEvents } from "../events/apple-sync.js";
-import { formatLocal } from "../utils/time/index.js";
+import {
+  dayEndUtc,
+  dayStartUtc,
+  formatLocal,
+  localDateString,
+} from "../utils/time/index.js";
 import { logger, truncateForLog } from "../log.js";
 import { classifyError, recordVoiceError } from "../telemetry.js";
 import { type ToolDefinition, z } from "./gateway.js";
@@ -22,6 +27,8 @@ const alarmMinutesBeforeSchema = z
   .array(z.number().int().nonnegative().max(10080))
   .nullable()
   .optional();
+
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Map tool param: omitted → undefined (client default/preserve); null → defaults; array → as-is. */
 function alarmMinutesFromToolParam(
@@ -35,6 +42,59 @@ function alarmMinutesFromToolParam(
 function parseIso(iso: string): Date | null {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Resolve calendar_list from/to. YYYY-MM-DD is a full local day
+ * (start inclusive → next midnight exclusive). Equal instants expand to
+ * that local calendar day so CalDAV never sees start === end.
+ */
+export function resolveCalendarListRange(opts: {
+  from?: string;
+  to?: string;
+  timeZone: string;
+  now?: Date;
+}): { ok: true; from: Date; to: Date } | { ok: false; error: string } {
+  const now = opts.now ?? new Date();
+  const tz = opts.timeZone;
+
+  const parseBound = (
+    raw: string | undefined,
+    role: "from" | "to",
+  ): Date | null => {
+    if (!raw) {
+      return role === "from"
+        ? now
+        : new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
+    }
+    const trimmed = raw.trim();
+    if (DATE_ONLY_RE.test(trimmed)) {
+      return role === "from"
+        ? dayStartUtc(trimmed, tz)
+        : dayEndUtc(trimmed, tz);
+    }
+    return parseIso(trimmed);
+  };
+
+  let from = parseBound(opts.from, "from");
+  let to = parseBound(opts.to, "to");
+  if (!from || !to) {
+    return { ok: false, error: "Invalid from/to ISO timestamp" };
+  }
+
+  if (to.getTime() <= from.getTime()) {
+    const day = localDateString(from, tz);
+    from = dayStartUtc(day, tz);
+    to = dayEndUtc(day, tz);
+  }
+
+  if (to.getTime() <= from.getTime()) {
+    return {
+      ok: false,
+      error: "invalid timeRange: start must be before end",
+    };
+  }
+  return { ok: true, from, to };
 }
 
 /** Public datetime pair for tool results: UTC ISO + user-local (for speech). */
@@ -472,12 +532,20 @@ export function createCalendarTools(deps: {
     {
       name: "calendar_list",
       description:
-        "List Apple Calendar events in a time range. Default: now to +2 days. Each event includes start_iso/end_iso (machine) and start_local/end_local (speak these). Jarvis-managed events also include event_id when matched by UID.",
+        "List Apple Calendar events in a time range. Default: now to +2 days. Prefer YYYY-MM-DD for a whole local day (from and to may be the same date). Each event includes start_iso/end_iso (machine) and start_local/end_local (speak these). Jarvis-managed events also include event_id when matched by UID.",
       parameters: {
         type: "object",
         properties: {
-          from: { type: "string", description: "ISO start (inclusive)" },
-          to: { type: "string", description: "ISO end (inclusive)" },
+          from: {
+            type: "string",
+            description:
+              "ISO datetime or YYYY-MM-DD (local day start, inclusive)",
+          },
+          to: {
+            type: "string",
+            description:
+              "ISO datetime or YYYY-MM-DD (local day end, exclusive next midnight). Same date as from = that full day.",
+          },
           limit: { type: "integer", minimum: 1, maximum: 50 },
         },
       },
@@ -492,16 +560,18 @@ export function createCalendarTools(deps: {
           return { ok: false, error: parsed.error.message };
         }
         const started = Date.now();
-        const now = new Date();
         const fromDefaulted = !parsed.data.from;
         const toDefaulted = !parsed.data.to;
-        const from = parsed.data.from ? parseIso(parsed.data.from) : now;
-        const to = parsed.data.to
-          ? parseIso(parsed.data.to)
-          : new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
-        if (!from || !to) {
-          return { ok: false, error: "Invalid from/to ISO timestamp" };
+        const timeZone = tz();
+        const range = resolveCalendarListRange({
+          from: parsed.data.from,
+          to: parsed.data.to,
+          timeZone,
+        });
+        if (!range.ok) {
+          return { ok: false, error: range.error };
         }
+        const { from, to } = range;
         const limit = parsed.data.limit ?? 30;
         const listed = await deps.calendar.listEvents({
           from,
@@ -529,7 +599,6 @@ export function createCalendarTools(deps: {
           listed.data.events.map((e) => e.uid),
         );
         const byUid = new Map(local.map((e) => [e.uid, e.id]));
-        const timeZone = tz();
         const events = listed.data.events.map((e) => {
           const start = e.start ? parseIso(e.start) : null;
           const end = e.end ? parseIso(e.end) : null;

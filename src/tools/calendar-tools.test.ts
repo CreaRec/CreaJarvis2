@@ -4,8 +4,40 @@ import type { ICloudCalendarClient } from "../calendar/icloud-client.js";
 import type { EventRecord } from "../events/types.js";
 import type { EventStore } from "../events/store.js";
 import { ToolGateway } from "./gateway.js";
-import { createCalendarTools } from "./calendar-tools.js";
+import {
+  createCalendarTools,
+  resolveCalendarListRange,
+} from "./calendar-tools.js";
 import { logger } from "../log.js";
+
+describe("resolveCalendarListRange", () => {
+  const TZ = "America/Chicago";
+
+  it("expands same YYYY-MM-DD from/to to a full local day", () => {
+    const range = resolveCalendarListRange({
+      from: "2026-08-15",
+      to: "2026-08-15",
+      timeZone: TZ,
+    });
+    expect(range.ok).toBe(true);
+    if (!range.ok) return;
+    // CDT: 00:00 → next 00:00 Chicago
+    expect(range.from.toISOString()).toBe("2026-08-15T05:00:00.000Z");
+    expect(range.to.toISOString()).toBe("2026-08-16T05:00:00.000Z");
+    expect(range.to.getTime()).toBeGreaterThan(range.from.getTime());
+  });
+
+  it("expands equal ISO midnights to the local day", () => {
+    const range = resolveCalendarListRange({
+      from: "2026-08-15",
+      to: "2026-08-15T00:00:00.000Z",
+      timeZone: TZ,
+    });
+    expect(range.ok).toBe(true);
+    if (!range.ok) return;
+    expect(range.to.getTime()).toBeGreaterThan(range.from.getTime());
+  });
+});
 
 function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
@@ -284,6 +316,25 @@ describe("createCalendarTools", () => {
       expect(events[1]?.event_id).toBeNull();
       expect(events[0]).not.toHaveProperty("reminder_id");
     }
+    infoSpy.mockRestore();
+  });
+
+  it("expands same-day YYYY-MM-DD range before calling CalDAV", async () => {
+    const calendar = makeCalendar({
+      listEvents: vi.fn().mockResolvedValue({ ok: true, data: { events: [] } }),
+    });
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => undefined);
+    const gw = gatewayWith(calendar, makeStore());
+    const result = await gw.execute("calendar_list", {
+      from: "2026-08-15",
+      to: "2026-08-15",
+    });
+    expect(result.ok).toBe(true);
+    expect(calendar.listEvents).toHaveBeenCalledWith({
+      from: new Date("2026-08-15T05:00:00.000Z"),
+      to: new Date("2026-08-16T05:00:00.000Z"),
+      limit: 30,
+    });
     infoSpy.mockRestore();
   });
 
