@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import { logger } from "../log.js";
 import { createChatCompletion } from "./chat.js";
 import { openAiFilePurposeForMime } from "./files.js";
+import { createResponse } from "./responses.js";
 
 describe("openai http clients", () => {
   it("createChatCompletion maps tools and returns message", async () => {
@@ -34,7 +36,7 @@ describe("openai http clients", () => {
 
   it("surfaces OpenAI error bodies", async () => {
     const fetchImpl = vi.fn(async () =>
-      Response.json({ error: { message: "rate limit" } }, { status: 429 }),
+      Response.json({ error: { message: "invalid api key" } }, { status: 401 }),
     );
     await expect(
       createChatCompletion({
@@ -43,7 +45,38 @@ describe("openai http clients", () => {
         messages: [{ role: "user", content: "x" }],
         fetchImpl: fetchImpl as unknown as typeof fetch,
       }),
-    ).rejects.toThrow(/rate limit/);
+    ).rejects.toThrow(/invalid api key/);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries createResponse after a 429 then returns output", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json(
+          { error: { message: "Please try again in 1s." } },
+          { status: 429 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          id: "resp_ok",
+          output_text: "ok",
+          output: [],
+        }),
+      );
+
+    const result = await createResponse({
+      apiKey: "sk",
+      model: "gpt-4o",
+      input: [{ role: "user", content: "hi" }],
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      sleep: async () => undefined,
+    });
+    expect(result.outputText).toBe("ok");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    warnSpy.mockRestore();
   });
 
   it("uses vision purpose for images and user_data for documents", () => {

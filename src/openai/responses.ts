@@ -1,5 +1,5 @@
-import { openaiErrorMessage } from "./errors.js";
 import type { ChatFetch, ChatHistoryMessage, ChatToolDef } from "./chat.js";
+import { openaiPostJson, type SleepFn } from "./retry.js";
 
 export type ResponseInputContent =
   | { type: "input_text"; text: string }
@@ -135,8 +135,8 @@ export async function createResponse(input: {
   input: ResponseInputItem[];
   tools?: ChatToolDef[];
   fetchImpl?: ChatFetch;
+  sleep?: SleepFn;
 }): Promise<CreateResponseResult> {
-  const fetchImpl = input.fetchImpl ?? fetch;
   const body: Record<string, unknown> = {
     model: input.model,
     input: input.input,
@@ -154,25 +154,18 @@ export async function createResponse(input: {
     body.tool_choice = "auto";
   }
 
-  const response = await fetchImpl("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${input.apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-
-  const json = (await response.json()) as {
+  const json = (await openaiPostJson({
+    url: "https://api.openai.com/v1/responses",
+    apiKey: input.apiKey,
+    body,
+    fetchImpl: input.fetchImpl ?? fetch,
+    errorPrefix: "OpenAI responses failed",
+    sleep: input.sleep,
+  })) as {
     id?: string;
     output?: ResponseOutputItem[];
     output_text?: string;
   };
-  if (!response.ok) {
-    throw new Error(
-      `OpenAI responses failed (${response.status}): ${openaiErrorMessage(json)}`,
-    );
-  }
   const output = Array.isArray(json.output) ? json.output : [];
   const outputText =
     typeof json.output_text === "string" && json.output_text.trim()

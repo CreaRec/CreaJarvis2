@@ -1,4 +1,4 @@
-import { openaiErrorMessage } from "./errors.js";
+import { openaiPostJson, type SleepFn } from "./retry.js";
 
 export type ChatRole = "system" | "user" | "assistant" | "tool";
 
@@ -48,8 +48,8 @@ export async function createChatCompletion(input: {
   messages: ChatMessage[];
   tools?: ChatToolDef[];
   fetchImpl?: ChatFetch;
+  sleep?: SleepFn;
 }): Promise<ChatCompletionResponse> {
-  const fetchImpl = input.fetchImpl ?? fetch;
   const body: Record<string, unknown> = {
     model: input.model,
     messages: input.messages,
@@ -66,26 +66,14 @@ export async function createChatCompletion(input: {
     body.tool_choice = "auto";
   }
 
-  const response = await fetchImpl(
-    "https://api.openai.com/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${input.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    },
-  );
-
-  const json = (await response.json()) as unknown;
-  if (!response.ok) {
-    throw new Error(
-      `OpenAI chat failed (${response.status}): ${openaiErrorMessage(json)}`,
-    );
-  }
-
-  const parsed = json as ChatCompletionResponse;
+  const parsed = (await openaiPostJson({
+    url: "https://api.openai.com/v1/chat/completions",
+    apiKey: input.apiKey,
+    body,
+    fetchImpl: input.fetchImpl ?? fetch,
+    errorPrefix: "OpenAI chat failed",
+    sleep: input.sleep,
+  })) as ChatCompletionResponse;
   if (!parsed?.choices?.[0]?.message) {
     throw new Error("OpenAI chat response missing choices[0].message");
   }
