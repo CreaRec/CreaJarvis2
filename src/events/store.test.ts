@@ -1,9 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { toPublic } from "./store.js";
+import { EventStore, toPublic } from "./store.js";
 import type { EventRecord } from "./types.js";
 import { syncAppleCalendarToEvents } from "./apple-sync.js";
 import type { ICloudCalendarClient } from "../calendar/icloud-client.js";
-import type { EventStore } from "./store.js";
 
 function makeEvent(overrides: Partial<EventRecord> = {}): EventRecord {
   const now = new Date("2024-01-15T18:00:00.000Z");
@@ -44,6 +43,30 @@ describe("EventStore toPublic", () => {
     expect(pub.recurrence_id).toBeNull();
     expect(pub.is_all_day).toBe(false);
     expect(pub).not.toHaveProperty("reminder_id");
+  });
+});
+
+describe("EventStore search", () => {
+  it("searches event title, notes, and location by keyword", async () => {
+    const row = makeEvent({
+      title: "Appointment",
+      locationName: "Banyan Tree Dental",
+    });
+    const findMany = vi.fn().mockResolvedValue([row]);
+    const store = new EventStore({
+      event: { findMany },
+    } as never);
+
+    const results = await store.search("dental", 5);
+
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ OR: expect.any(Array) }),
+        take: 15,
+      }),
+    );
+    expect(results).toHaveLength(1);
+    expect(results[0]?.title).toBe("Appointment");
   });
 });
 

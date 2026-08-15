@@ -274,6 +274,63 @@ export class EventStore {
     return rows.map(toRecord);
   }
 
+  async search(query: string, limit = 10): Promise<EventRecord[]> {
+    const tokens = query
+      .toLowerCase()
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter((token) => token.length > 1)
+      .slice(0, 8);
+
+    if (tokens.length === 0) {
+      return this.list({ limit });
+    }
+
+    const rows = await this.db.event.findMany({
+      where: {
+        OR: tokens.flatMap((token) => [
+          { title: { contains: token, mode: "insensitive" as const } },
+          { notes: { contains: token, mode: "insensitive" as const } },
+          {
+            locationName: {
+              contains: token,
+              mode: "insensitive" as const,
+            },
+          },
+          {
+            locationAddress: {
+              contains: token,
+              mode: "insensitive" as const,
+            },
+          },
+        ]),
+      },
+      orderBy: { startAt: "asc" },
+      take: limit * 3,
+    });
+
+    const scored = rows.map((row) => {
+      const haystack = [
+        row.title,
+        row.notes,
+        row.locationName,
+        row.locationAddress,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      const score = tokens.reduce(
+        (total, token) => total + (haystack.includes(token) ? 1 : 0),
+        0,
+      );
+      return { row, score };
+    });
+    scored.sort(
+      (a, b) =>
+        b.score - a.score || a.row.startAt.getTime() - b.row.startAt.getTime(),
+    );
+    return scored.slice(0, limit).map(({ row }) => toRecord(row));
+  }
+
   /**
    * Upsert Apple snapshot rows and delete locals not seen in this sync run.
    * Caller must only invoke after a complete Apple fetch.

@@ -58,6 +58,8 @@ describe("buildSessionInstructions", () => {
     expect(text).toContain("today at 10:00 / 14:00 / 18:00 / 21:00");
     expect(text).toContain("warm");
     expect(text).toContain("plan_get");
+    expect(text).toContain("schedule_search");
+    expect(text).toContain("plans, reminders, and synced Apple events");
     expect(text).toContain("CRITICAL date mapping");
     expect(text).toContain("Themes (ideas / projects / trips / lists):");
     expect(text).toContain("theme_*");

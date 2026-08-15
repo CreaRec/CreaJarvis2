@@ -30,6 +30,7 @@ import { createDeviceTools } from "../tools/device-tools.js";
 import { createMemoryTools } from "../tools/memory-tools.js";
 import { createPlanTools } from "../tools/plan-tools.js";
 import { createReminderTools } from "../tools/reminder-tools.js";
+import { createScheduleTools } from "../tools/schedule-tools.js";
 import { createSearchTools } from "../tools/search-tools.js";
 import { createThemeTools } from "../tools/theme-tools.js";
 import {
@@ -184,6 +185,14 @@ async function main(): Promise<void> {
     }
   }
   for (const tool of createPlanTools({ store: planStore, config })) {
+    tools.register(tool);
+  }
+  for (const tool of createScheduleTools({
+    reminders: reminderStore,
+    events: eventStore,
+    plans: planStore,
+    config,
+  })) {
     tools.register(tool);
   }
   for (const tool of createThemeTools({ store: themeStore })) {
