@@ -1,7 +1,10 @@
 import { z } from "zod";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { runAgentTurn } from "../agent/turn.js";
-import type { AgentSessionStore } from "../agent/session-store.js";
+import type {
+  AgentSessionStore,
+  SessionMessage,
+} from "../agent/session-store.js";
 import { logger, truncateForLog } from "../log.js";
 import type { ToolGateway } from "../tools/gateway.js";
 import {
@@ -88,10 +91,7 @@ export async function handleAgentTurnHttp(
       "voice.session",
       { handler: "http", step: "agent_turn" },
       async () => {
-        let priorMessages: Array<{
-          role: "user" | "assistant";
-          content: string;
-        }> = [];
+        let priorMessages: SessionMessage[] = [];
         if (userId && deps.sessionStore) {
           const loadStarted = Date.now();
           priorMessages = await deps.sessionStore.getMessages(userId);
@@ -102,6 +102,9 @@ export async function handleAgentTurnHttp(
             result: "success",
             duration_ms: Date.now() - loadStarted,
             message_count: priorMessages.length,
+            tool_message_count: priorMessages.filter(
+              (message) => message.role === "tool",
+            ).length,
           });
         }
 
@@ -117,13 +120,21 @@ export async function handleAgentTurnHttp(
 
         if (userId && deps.sessionStore) {
           const saveStarted = Date.now();
-          await deps.sessionStore.appendTurn(userId, userText, turn.text);
+          await deps.sessionStore.appendTurn(
+            userId,
+            userText,
+            turn.text,
+            turn.toolTranscript,
+          );
           logger.info("[http] session save", {
             component: "core",
             handler: "http",
             step: "session_save",
             result: "success",
             duration_ms: Date.now() - saveStarted,
+            tool_message_count: turn.toolTranscript.filter(
+              (message) => message.role === "tool",
+            ).length,
           });
         }
 

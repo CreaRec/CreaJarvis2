@@ -38,6 +38,53 @@ describe("MemoryAgentSessionStore", () => {
     now += 11_000;
     expect(await store.getMessages("u1")).toEqual([]);
   });
+
+  it("persists tool results and trims whole turns", async () => {
+    const store = new MemoryAgentSessionStore({
+      ttlSeconds: 1800,
+      maxMessages: 2,
+    });
+    await store.appendTurn("u1", "old", "old answer");
+    await store.appendTurn("u1", "что сегодня", "Встреча сегодня", [
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_event",
+            type: "function",
+            function: { name: "schedule_search", arguments: "{}" },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        tool_call_id: "call_event",
+        content: '{"ok":true,"data":{"event_id":"event-1"}}',
+      },
+    ]);
+
+    expect(await store.getMessages("u1")).toEqual([
+      { role: "user", content: "что сегодня" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_event",
+            type: "function",
+            function: { name: "schedule_search", arguments: "{}" },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        tool_call_id: "call_event",
+        content: '{"ok":true,"data":{"event_id":"event-1"}}',
+      },
+      { role: "assistant", content: "Встреча сегодня" },
+    ]);
+  });
 });
 
 describe("RedisAgentSessionStore", () => {

@@ -1,15 +1,21 @@
 import { createClient, type RedisClientType } from "redis";
 import { logger } from "../log.js";
+import type {
+  ChatHistoryMessage,
+  ChatToolCall,
+} from "../openai/chat.js";
 import { classifyError } from "../telemetry.js";
 
-export type SessionMessage = {
-  role: "user" | "assistant";
-  content: string;
-};
+export type SessionMessage = ChatHistoryMessage;
 
 export interface AgentSessionStore {
   getMessages(userId: string): Promise<SessionMessage[]>;
-  appendTurn(userId: string, user: string, assistant: string): Promise<void>;
+  appendTurn(
+    userId: string,
+    user: string,
+    assistant: string,
+    toolTranscript?: SessionMessage[],
+  ): Promise<void>;
   clear(userId: string): Promise<void>;
 }
 
@@ -33,6 +39,56 @@ function sanitizeUserId(userId: string): string {
   return userId.trim();
 }
 
+function isToolCall(value: unknown): value is ChatToolCall {
+  if (!value || typeof value !== "object") return false;
+  const call = value as ChatToolCall;
+  return (
+    typeof call.id === "string" &&
+    call.type === "function" &&
+    Boolean(call.function) &&
+    typeof call.function.name === "string" &&
+    typeof call.function.arguments === "string"
+  );
+}
+
+function parseMessage(item: unknown): SessionMessage | null {
+  if (!item || typeof item !== "object") return null;
+  const message = item as Record<string, unknown>;
+  if (message.role === "user" && typeof message.content === "string") {
+    return { role: "user", content: message.content };
+  }
+  if (
+    message.role === "tool" &&
+    typeof message.tool_call_id === "string" &&
+    typeof message.content === "string"
+  ) {
+    return {
+      role: "tool",
+      tool_call_id: message.tool_call_id,
+      content: message.content,
+    };
+  }
+  if (
+    message.role === "assistant" &&
+    (typeof message.content === "string" || message.content === null)
+  ) {
+    if (message.tool_calls === undefined) {
+      return { role: "assistant", content: message.content };
+    }
+    if (
+      Array.isArray(message.tool_calls) &&
+      message.tool_calls.every(isToolCall)
+    ) {
+      return {
+        role: "assistant",
+        content: message.content,
+        tool_calls: message.tool_calls,
+      };
+    }
+  }
+  return null;
+}
+
 function parseMessages(raw: string | null): SessionMessage[] {
   if (!raw) return [];
   try {
@@ -40,19 +96,8 @@ function parseMessages(raw: string | null): SessionMessage[] {
     if (!Array.isArray(parsed)) return [];
     const out: SessionMessage[] = [];
     for (const item of parsed) {
-      if (
-        item &&
-        typeof item === "object" &&
-        (item as SessionMessage).role &&
-        ((item as SessionMessage).role === "user" ||
-          (item as SessionMessage).role === "assistant") &&
-        typeof (item as SessionMessage).content === "string"
-      ) {
-        out.push({
-          role: (item as SessionMessage).role,
-          content: (item as SessionMessage).content,
-        });
-      }
+      const message = parseMessage(item);
+      if (message) out.push(message);
     }
     return out;
   } catch {
@@ -64,8 +109,12 @@ function trimMessages(
   messages: SessionMessage[],
   maxMessages: number,
 ): SessionMessage[] {
-  if (messages.length <= maxMessages) return messages;
-  return messages.slice(messages.length - maxMessages);
+  const userIndexes = messages.flatMap((message, index) =>
+    message.role === "user" ? [index] : [],
+  );
+  const maxTurns = Math.max(1, Math.floor(maxMessages / 2));
+  if (userIndexes.length <= maxTurns) return messages;
+  return messages.slice(userIndexes[userIndexes.length - maxTurns]!);
 }
 
 /** In-memory store for unit tests (optional idle TTL via injected clock). */
@@ -103,6 +152,7 @@ export class MemoryAgentSessionStore implements AgentSessionStore {
     userId: string,
     user: string,
     assistant: string,
+    toolTranscript: SessionMessage[] = [],
   ): Promise<void> {
     const id = sanitizeUserId(userId);
     if (!id) return;
@@ -111,6 +161,7 @@ export class MemoryAgentSessionStore implements AgentSessionStore {
       [
         ...prior,
         { role: "user", content: user },
+        ...toolTranscript.filter((message) => message.role !== "user"),
         { role: "assistant", content: assistant },
       ],
       this.opts.maxMessages,
@@ -156,6 +207,7 @@ export class RedisAgentSessionStore implements AgentSessionStore {
     userId: string,
     user: string,
     assistant: string,
+    toolTranscript: SessionMessage[] = [],
   ): Promise<void> {
     const id = sanitizeUserId(userId);
     if (!id) return;
@@ -165,6 +217,7 @@ export class RedisAgentSessionStore implements AgentSessionStore {
         [
           ...prior,
           { role: "user", content: user },
+          ...toolTranscript.filter((message) => message.role !== "user"),
           { role: "assistant", content: assistant },
         ],
         this.opts.maxMessages,

@@ -59,6 +59,7 @@ describe("handleAgentTurnHttp", () => {
         text: "ответ",
         iterations: 1,
         toolResults: [],
+        toolTranscript: [],
       }),
     });
     expect(res.statusCode).toBe(200);
@@ -77,7 +78,29 @@ describe("handleAgentTurnHttp", () => {
         { role: "user", content: "раньше" },
         { role: "assistant", content: "ок" },
       ]);
-      return { text: "новое", iterations: 1, toolResults: [] };
+      return {
+        text: "новое",
+        iterations: 2,
+        toolResults: [],
+        toolTranscript: [
+          {
+            role: "assistant" as const,
+            content: null,
+            tool_calls: [
+              {
+                id: "call_1",
+                type: "function" as const,
+                function: { name: "schedule_search", arguments: "{}" },
+              },
+            ],
+          },
+          {
+            role: "tool" as const,
+            tool_call_id: "call_1",
+            content: '{"ok":true,"data":{"event_id":"event-1"}}',
+          },
+        ],
+      };
     });
 
     await handleAgentTurnHttp(
@@ -96,6 +119,22 @@ describe("handleAgentTurnHttp", () => {
       { role: "user", content: "раньше" },
       { role: "assistant", content: "ок" },
       { role: "user", content: "сейчас" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_1",
+            type: "function",
+            function: { name: "schedule_search", arguments: "{}" },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        tool_call_id: "call_1",
+        content: '{"ok":true,"data":{"event_id":"event-1"}}',
+      },
       { role: "assistant", content: "новое" },
     ]);
   });
@@ -112,7 +151,12 @@ describe("handleAgentTurnHttp", () => {
       readJsonBody: async () => ({ text: "hi" }),
       runTurn: async (input) => {
         expect(input.priorMessages).toEqual([]);
-        return { text: "ok", iterations: 1, toolResults: [] };
+        return {
+          text: "ok",
+          iterations: 1,
+          toolResults: [],
+          toolTranscript: [],
+        };
       },
     });
     expect(res.statusCode).toBe(200);

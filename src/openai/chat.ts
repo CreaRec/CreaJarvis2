@@ -2,14 +2,18 @@ import { openaiErrorMessage } from "./errors.js";
 
 export type ChatRole = "system" | "user" | "assistant" | "tool";
 
-export type ChatMessage =
-  | { role: "system" | "user"; content: string }
+export type ChatHistoryMessage =
+  | { role: "user"; content: string }
   | {
       role: "assistant";
       content: string | null;
       tool_calls?: ChatToolCall[];
     }
   | { role: "tool"; tool_call_id: string; content: string };
+
+export type ChatMessage =
+  | { role: "system"; content: string }
+  | ChatHistoryMessage;
 
 export interface ChatToolCall {
   id: string;

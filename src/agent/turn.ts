@@ -1,6 +1,7 @@
 import {
   createChatCompletion,
   type ChatFetch,
+  type ChatHistoryMessage,
   type ChatMessage,
   type ChatToolCall,
 } from "../openai/chat.js";
@@ -20,6 +21,8 @@ export interface AgentTurnResult {
   text: string;
   iterations: number;
   toolResults: Array<{ name: string; result: ToolResult }>;
+  /** Assistant tool calls and their outputs, replayed on later turns. */
+  toolTranscript: ChatHistoryMessage[];
 }
 
 export interface RunAgentTurnInput {
@@ -28,8 +31,8 @@ export interface RunAgentTurnInput {
   instructions: string;
   userText: string;
   tools: ToolGateway;
-  /** Prior user/assistant turns (no system); injected between system and current user. */
-  priorMessages?: Array<{ role: "user" | "assistant"; content: string }>;
+  /** Prior conversation and tool transcript (no system message). */
+  priorMessages?: ChatHistoryMessage[];
   maxIterations?: number;
   fetchImpl?: ChatFetch;
 }
@@ -40,9 +43,8 @@ export async function runAgentTurn(
   input: RunAgentTurnInput,
 ): Promise<AgentTurnResult> {
   const maxIterations = input.maxIterations ?? DEFAULT_MAX_ITERATIONS;
-  const prior = (input.priorMessages ?? []).map((m) => ({
-    role: m.role,
-    content: m.content,
+  const prior = (input.priorMessages ?? []).map((message) => ({
+    ...message,
   }));
   const messages: ChatMessage[] = [
     { role: "system", content: input.instructions },
@@ -51,6 +53,7 @@ export async function runAgentTurn(
   ];
   const toolDefs = input.tools.listTools();
   const toolResults: Array<{ name: string; result: ToolResult }> = [];
+  const toolTranscript: ChatHistoryMessage[] = [];
 
   for (let i = 0; i < maxIterations; i++) {
     const completion = await createChatCompletion({
@@ -69,23 +72,27 @@ export async function runAgentTurn(
       if (!text) {
         throw new Error("Agent turn returned empty assistant text");
       }
-      return { text, iterations: i + 1, toolResults };
+      return { text, iterations: i + 1, toolResults, toolTranscript };
     }
 
-    messages.push({
+    const assistantToolMessage: ChatHistoryMessage = {
       role: "assistant",
       content: message.content,
       tool_calls: toolCalls,
-    });
+    };
+    messages.push(assistantToolMessage);
+    toolTranscript.push(assistantToolMessage);
 
     for (const call of toolCalls) {
       const executed = await executeToolCall(input.tools, call);
       toolResults.push(executed);
-      messages.push({
+      const toolMessage: ChatHistoryMessage = {
         role: "tool",
         tool_call_id: call.id,
         content: JSON.stringify(executed.result),
-      });
+      };
+      messages.push(toolMessage);
+      toolTranscript.push(toolMessage);
     }
   }
 
