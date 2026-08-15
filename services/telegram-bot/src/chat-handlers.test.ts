@@ -19,22 +19,51 @@ function makeConfig(): BotConfig {
 }
 
 describe("ChatHandlers", () => {
-  it("proxies text to jarvis and replies", async () => {
+  it("proxies text to jarvis with userId and replies", async () => {
     const users: UsersStore = {
       isAllowed: vi.fn(async () => true),
       getReplyMode: vi.fn(async () => "text" as const),
       setReplyMode: vi.fn(async (_id, m) => m),
     };
+    const agentTurn = vi.fn(async () => "ответ");
     const handlers = new ChatHandlers({
       config: makeConfig(),
       users,
-      agentTurn: async () => "ответ",
+      agentTurn,
     });
     const ctx = {
       reply: vi.fn(async () => ({ message_id: 1 })),
       replyWithChatAction: vi.fn(async () => true),
     };
-    await handlers.handleText(ctx as never, 1, "привет");
+    await handlers.handleText(ctx as never, 42, "привет");
+    expect(agentTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "привет",
+        userId: "42",
+      }),
+    );
     expect(ctx.reply).toHaveBeenCalledWith("ответ");
+  });
+
+  it("clears session on /new", async () => {
+    const users: UsersStore = {
+      isAllowed: vi.fn(async () => true),
+      getReplyMode: vi.fn(async () => "text" as const),
+      setReplyMode: vi.fn(async (_id, m) => m),
+    };
+    const clearSession = vi.fn(async () => undefined);
+    const handlers = new ChatHandlers({
+      config: makeConfig(),
+      users,
+      clearSession,
+    });
+    const ctx = {
+      reply: vi.fn(async () => ({ message_id: 1 })),
+    };
+    await handlers.handleNew(ctx as never, 7);
+    expect(clearSession).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "7" }),
+    );
+    expect(ctx.reply).toHaveBeenCalledWith("Контекст сброшен.");
   });
 });

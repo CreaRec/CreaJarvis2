@@ -24,6 +24,8 @@ export interface RunAgentTurnInput {
   instructions: string;
   userText: string;
   tools: ToolGateway;
+  /** Prior user/assistant turns (no system); injected between system and current user. */
+  priorMessages?: Array<{ role: "user" | "assistant"; content: string }>;
   maxIterations?: number;
   fetchImpl?: ChatFetch;
 }
@@ -34,8 +36,13 @@ export async function runAgentTurn(
   input: RunAgentTurnInput,
 ): Promise<AgentTurnResult> {
   const maxIterations = input.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+  const prior = (input.priorMessages ?? []).map((m) => ({
+    role: m.role,
+    content: m.content,
+  }));
   const messages: ChatMessage[] = [
     { role: "system", content: input.instructions },
+    ...prior,
     { role: "user", content: input.userText },
   ];
   const toolDefs = input.tools.listTools();

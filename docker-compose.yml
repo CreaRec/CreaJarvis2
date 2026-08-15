@@ -21,16 +21,32 @@ services:
       timeout: 5s
       retries: 20
 
+  # Agent chat rolling context (Telegram /internal/agent/turn)
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - ./data/redis:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
   core:
     image: ${IMAGE:-ghcr.io/crearec/crea-jarvis2}:${IMAGE_TAG:-main}
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     env_file:
       - .env
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-jarvis}:${POSTGRES_PASSWORD:-jarvis}@postgres:5432/${POSTGRES_DB:-jarvis}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       PORT: "8787"
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://alloy:4318}
       OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-crea-jarvis}

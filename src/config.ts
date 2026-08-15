@@ -14,6 +14,12 @@ const envSchema = z.object({
   DATABASE_URL: z
     .string()
     .default("postgres://jarvis:jarvis@postgres:5432/jarvis"),
+  /** Redis for Telegram agent rolling chat context. */
+  REDIS_URL: z.string().default("redis://redis:6379"),
+  /** Idle TTL for agent session keys (seconds). */
+  AGENT_SESSION_TTL_SECONDS: z.coerce.number().int().min(60).default(1800),
+  /** Max user+assistant messages kept per session. */
+  AGENT_SESSION_MAX_MESSAGES: z.coerce.number().int().min(2).max(100).default(12),
   PORT: z.coerce.number().default(8787),
   MEMORY_RETRIEVER: z.enum(["pgvector", "qdrant"]).default("pgvector"),
   EMBEDDING_MODEL: z.string().default("text-embedding-3-small"),

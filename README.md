@@ -4,7 +4,7 @@ Personal Jarvis MVP: OpenAI Realtime voice, Prisma + Postgres/pgvector memory, D
 
 ## Architecture
 
-- **Docker Compose:** `postgres` (pgvector) + `core` (Realtime, tools, memory, reminders, Voice Gateway) + `esp-syslog-bridge` (ESPHome syslog → OTLP / Loki as `crea-jarvis-client`)
+- **Docker Compose:** `postgres` (pgvector) + `redis` (Telegram agent rolling context) + `core` (Realtime, tools, memory, reminders, Voice Gateway) + `telegram-bot` + `esp-syslog-bridge` (ESPHome syslog → OTLP / Loki as `crea-jarvis-client`)
 - **Mac / Pi / Linux host:** `clients/desktop` — Python PySide6 native voice client (wake → ack → listen); see [clients/desktop/README.md](clients/desktop/README.md)
 - **Voice PE (ESPHome):** `clients/esp-voice-pe` — headless `kind: esp` client to the same Voice Gateway; flash via Import/CLI against **deployed Core LAN IP** ([clients/esp-voice-pe/README.md](clients/esp-voice-pe/README.md))
 - **Multi-device LAN:** one Core, many desktops — household `JARVIS_GATEWAY_TOKEN`, device `hello`, exclusive voice ownership ([ADR-005](docs/ADR-005-multi-device-gateway.md))

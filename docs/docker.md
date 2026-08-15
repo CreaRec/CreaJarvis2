@@ -1,6 +1,6 @@
 # Docker + GHCR deployment
 
-Production runs as a Docker Compose stack: Postgres (pgvector), Core, and the ESP syslog LAN bridge. Images come from GitHub Container Registry (GHCR). Releases happen only through GitHub Actions when changes land on `main`. There is no local deploy script.
+Production runs as a Docker Compose stack: Postgres (pgvector), Redis (Telegram agent rolling context), Core, Telegram bot, and the ESP syslog LAN bridge. Images come from GitHub Container Registry (GHCR). Releases happen only through GitHub Actions when changes land on `main`. There is no local deploy script.
 
 | Image | Service |
 |-------|---------|
@@ -22,7 +22,7 @@ The desktop client is **not** built or deployed. CI runs its pytest suite only. 
 4. Actions copies `docker-compose.yml` to the server, exports **only** the image tags published in that run (`IMAGE_TAG` / `BRIDGE_IMAGE_TAG`), then `docker compose pull && docker compose up -d`.
 5. After a successful image publish, `ghcr_cleanup` keeps the **10** newest `sha-*` tags per package, always preserves `:main`, and deletes untagged/orphaned manifests (buildx attestations left behind when tags move).
 
-App secrets stay on the server in `.env`. Postgres data stays in `./data/postgres`. CI never mutates `.env` and never touches Postgres volumes.
+App secrets stay on the server in `.env`. Postgres data stays in `./data/postgres`; Redis AOF in `./data/redis`. CI never mutates `.env` and never touches Postgres/Redis volumes.
 
 On container start Core runs `prisma migrate deploy`, then `node dist/src/server/index.js`. The bridge listens UDP `:1514` and forwards ESPHome syslog to Alloy as OTLP logs (`service.name=crea-jarvis-client`).
 
@@ -45,7 +45,7 @@ After the first successful publish jobs:
 ### 2. Deploy directory
 
 ```sh
-mkdir -p /home/crearec/crea-jarvis2/data/postgres
+mkdir -p /home/crearec/crea-jarvis2/data/postgres /home/crearec/crea-jarvis2/data/redis
 cd /home/crearec/crea-jarvis2
 ```
 
@@ -68,9 +68,10 @@ POSTGRES_DB=jarvis
 # Host port for Mac DB tools (default 5433; container listens on 5432)
 POSTGRES_PORT=5433
 DATABASE_URL=postgres://jarvis:<strong>@postgres:5432/jarvis
+REDIS_URL=redis://redis:6379
 
 USER_TIMEZONE=America/Chicago
-# optional: ICLOUD_CALDAV_*, JARVIS_WEATHER_*, REMINDER_*
+# optional: ICLOUD_CALDAV_*, JARVIS_WEATHER_*, REMINDER_*, AGENT_SESSION_*
 
 OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
 OTEL_SERVICE_NAMESPACE=apps
@@ -80,7 +81,7 @@ DEPLOY_ENV=production
 
 `PORT`, `MEMORY_RETRIEVER`, and `VOICE_GATEWAY_URL` have defaults and are not required on the server. Desktop clients set `VOICE_GATEWAY_URL` / `JARVIS_GATEWAY_TOKEN` on the host (or in Settings).
 
-Compose overrides `DATABASE_URL` for the `core` service to reach the `postgres` hostname.
+Compose overrides `DATABASE_URL` / `REDIS_URL` for the `core` service to reach the `postgres` / `redis` hostnames.
 
 ### 3. First start
 

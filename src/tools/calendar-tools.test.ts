@@ -11,6 +11,9 @@ function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
     OPENAI_API_KEY: "test",
     DATABASE_URL: "postgres://x",
+    REDIS_URL: "redis://localhost:6379",
+    AGENT_SESSION_TTL_SECONDS: 1800,
+    AGENT_SESSION_MAX_MESSAGES: 12,
     PORT: 8787,
     MEMORY_RETRIEVER: "pgvector",
     EMBEDDING_MODEL: "text-embedding-3-small",

@@ -1,7 +1,7 @@
 import type { Context } from "telegraf";
 import type { BotConfig } from "./config.js";
 import { looksLikeOgg, toTelegramVoiceOgg } from "./ffmpeg.js";
-import { jarvisAgentTurn } from "./jarvis-client.js";
+import { jarvisAgentTurn, jarvisClearSession } from "./jarvis-client.js";
 import { logger, truncateForLog } from "./log.js";
 import { synthesizeSpeech, transcribeAudio } from "./openai-audio.js";
 import { safeReply } from "./telegram-ctx.js";
@@ -14,10 +14,42 @@ export interface ChatHandlersDeps {
   fetchImpl?: typeof fetch;
   toVoiceOgg?: (input: Buffer) => Promise<Buffer>;
   agentTurn?: typeof jarvisAgentTurn;
+  clearSession?: typeof jarvisClearSession;
 }
 
 export class ChatHandlers {
   constructor(private readonly deps: ChatHandlersDeps) {}
+
+  async handleNew(ctx: Context, userId: number): Promise<void> {
+    try {
+      const clear = this.deps.clearSession ?? jarvisClearSession;
+      await clear({
+        baseUrl: this.deps.config.JARVIS_BASE_URL,
+        token: this.deps.config.JARVIS_GATEWAY_TOKEN,
+        userId: String(userId),
+        fetchImpl: this.deps.fetchImpl,
+      });
+      logger.info("[telegram] session cleared", {
+        component: "telegram",
+        handler: "chat",
+        step: "session_clear",
+        result: "success",
+      });
+      await safeReply((t) => ctx.reply(t), "Контекст сброшен.");
+    } catch (err) {
+      logger.exception("[telegram] session clear failed", err, {
+        component: "telegram",
+        handler: "chat",
+        step: "session_clear",
+        result: "error",
+        error_type: classifyError(err),
+      });
+      await safeReply(
+        (t) => ctx.reply(t),
+        "Не удалось сбросить контекст. Попробуй ещё раз.",
+      );
+    }
+  }
 
   async handleText(ctx: Context, userId: number, text: string): Promise<void> {
     const trimmed = text.trim();
@@ -109,6 +141,7 @@ export class ChatHandlers {
         baseUrl: this.deps.config.JARVIS_BASE_URL,
         token: this.deps.config.JARVIS_GATEWAY_TOKEN,
         text: userText,
+        userId: String(userId),
         fetchImpl: this.deps.fetchImpl,
       });
       logger.info("[telegram] turn done", {

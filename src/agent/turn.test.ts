@@ -89,6 +89,47 @@ describe("runAgentTurn", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
+  it("includes prior messages between system and current user", async () => {
+    const tools = new ToolGateway();
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as {
+        messages: Array<{ role: string; content: string }>;
+      };
+      expect(body.messages.map((m) => m.role)).toEqual([
+        "system",
+        "user",
+        "assistant",
+        "user",
+      ]);
+      expect(body.messages[1]?.content).toBe("раньше");
+      expect(body.messages[2]?.content).toBe("ок");
+      expect(body.messages[3]?.content).toBe("сейчас");
+      return Response.json({
+        choices: [
+          {
+            message: { role: "assistant", content: "да" },
+            finish_reason: "stop",
+          },
+        ],
+      });
+    });
+
+    const result = await runAgentTurn({
+      apiKey: "sk",
+      model: "gpt-4o",
+      instructions: "sys",
+      userText: "сейчас",
+      priorMessages: [
+        { role: "user", content: "раньше" },
+        { role: "assistant", content: "ок" },
+      ],
+      tools,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(result.text).toBe("да");
+  });
+
   it("throws when max iterations exceeded", async () => {
     const tools = new ToolGateway();
     tools.register({

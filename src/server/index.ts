@@ -36,9 +36,14 @@ import {
   weatherEnabledFlag,
 } from "../weather/open-meteo.js";
 import { logger } from "../log.js";
-import { startTelemetry, shutdownTelemetry } from "../telemetry.js";
-import { handleAgentTurnHttp, readJsonBody } from "./agent-http.js";
+import { startTelemetry, shutdownTelemetry, classifyError } from "../telemetry.js";
+import { handleAgentSessionClearHttp, handleAgentTurnHttp, readJsonBody } from "./agent-http.js";
 import { VoiceGateway } from "./voice-gateway.js";
+import {
+  connectRedisClient,
+  RedisAgentSessionStore,
+} from "../agent/session-store.js";
+import type { RedisClientType } from "redis";
 
 installConsoleCapture(debugLogBuffer);
 
@@ -206,6 +211,32 @@ async function main(): Promise<void> {
     return cachedInstructions;
   };
 
+  let redisClient: RedisClientType | null = null;
+  try {
+    redisClient = await connectRedisClient(config.REDIS_URL);
+    logger.info("[core] redis connected", {
+      component: "core",
+      handler: "http",
+      step: "redis",
+      result: "success",
+    });
+  } catch (err) {
+    logger.exception("[core] redis connect failed; agent sessions disabled", err, {
+      component: "core",
+      handler: "http",
+      step: "redis",
+      result: "error",
+      error_type: classifyError(err),
+    });
+  }
+
+  const sessionStore = redisClient
+    ? new RedisAgentSessionStore(redisClient, {
+        ttlSeconds: config.AGENT_SESSION_TTL_SECONDS,
+        maxMessages: config.AGENT_SESSION_MAX_MESSAGES,
+      })
+    : undefined;
+
   const voice = new VoiceGateway({
     config,
     tools,
@@ -215,6 +246,18 @@ async function main(): Promise<void> {
     planStore,
     getInstructions,
   });
+
+  const agentHttpDeps = {
+    apiKey: config.OPENAI_API_KEY,
+    model: config.AGENT_CHAT_MODEL,
+    tools,
+    getInstructions,
+    tokensEqual,
+    gatewayToken: config.JARVIS_GATEWAY_TOKEN,
+    extractBearer,
+    readJsonBody,
+    sessionStore,
+  };
 
   const server = createServer((req, res) => {
     const url = req.url ?? "/";
@@ -236,16 +279,12 @@ async function main(): Promise<void> {
     }
 
     if (url === "/internal/agent/turn" && req.method === "POST") {
-      void handleAgentTurnHttp(req, res, {
-        apiKey: config.OPENAI_API_KEY,
-        model: config.AGENT_CHAT_MODEL,
-        tools,
-        getInstructions,
-        tokensEqual,
-        gatewayToken: config.JARVIS_GATEWAY_TOKEN,
-        extractBearer,
-        readJsonBody,
-      });
+      void handleAgentTurnHttp(req, res, agentHttpDeps);
+      return;
+    }
+
+    if (url === "/internal/agent/session/clear" && req.method === "POST") {
+      void handleAgentSessionClearHttp(req, res, agentHttpDeps);
       return;
     }
 
@@ -415,6 +454,9 @@ async function main(): Promise<void> {
     });
     poller.stop();
     server.close();
+    if (redisClient) {
+      await redisClient.quit().catch(() => undefined);
+    }
     await prisma.$disconnect();
     await shutdownTelemetry();
     process.exit(0);

@@ -93,6 +93,12 @@ export class TelegramBotService {
       await this.modeHandlers.handleMode(ctx, userId);
     });
 
+    this.bot.command("new", async (ctx) => {
+      const userId = ctx.from?.id;
+      if (userId == null) return;
+      await this.chatHandlers.handleNew(ctx, userId);
+    });
+
     this.bot.on("text", async (ctx) => {
       const userId = ctx.from?.id;
       if (userId == null) return;

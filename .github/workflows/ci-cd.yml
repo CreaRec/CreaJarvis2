@@ -348,7 +348,7 @@ jobs:
           SSH=(ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes)
           SCP=(scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes)
 
-          "${SSH[@]}" "$SSH_TARGET" "mkdir -p '${DEPLOY_DIR}/data/postgres' '${DEPLOY_DIR}/data/telegram-bot'"
+          "${SSH[@]}" "$SSH_TARGET" "mkdir -p '${DEPLOY_DIR}/data/postgres' '${DEPLOY_DIR}/data/redis' '${DEPLOY_DIR}/data/telegram-bot'"
           "${SCP[@]}" docker-compose.yml "${SSH_TARGET}:${DEPLOY_DIR}/docker-compose.yml"
 
           "${SSH[@]}" "$SSH_TARGET" bash -s <<EOF
