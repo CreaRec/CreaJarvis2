@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   BTN_MODE,
   BTN_NEW,
   MAIN_KEYBOARD,
   matchKeyboardAction,
+  replyWithMainKeyboard,
 } from "./telegram-ctx.js";
 
 describe("telegram keyboard", () => {
@@ -19,5 +20,13 @@ describe("telegram keyboard", () => {
     expect(matchKeyboardAction("mode")).toBe("mode");
     expect(matchKeyboardAction(" New ")).toBe("new");
     expect(matchKeyboardAction("привет")).toBeUndefined();
+  });
+
+  it("attaches main keyboard on every reply helper call", async () => {
+    const ctx = {
+      reply: vi.fn(async () => ({ message_id: 1 })),
+    };
+    await replyWithMainKeyboard(ctx as never, "привет");
+    expect(ctx.reply).toHaveBeenCalledWith("привет", MAIN_KEYBOARD);
   });
 });

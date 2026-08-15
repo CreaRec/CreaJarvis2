@@ -68,6 +68,13 @@ export async function safeReply(
   }
 }
 
+export async function replyWithMainKeyboard(
+  ctx: Pick<Context, "reply">,
+  message: string,
+): Promise<{ message_id?: number } | undefined> {
+  return safeReply((text) => ctx.reply(text, MAIN_KEYBOARD), message);
+}
+
 export function formatModeHelp(mode: "text" | "voice"): string {
   return `${BOT_HELP_MESSAGE}\n\nТекущий режим ответа: ${mode}.`;
 }

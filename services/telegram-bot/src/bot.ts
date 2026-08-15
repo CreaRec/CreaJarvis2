@@ -8,6 +8,7 @@ import {
   BOT_PRIVATE_MESSAGE,
   isPrivateChat,
   matchKeyboardAction,
+  replyWithMainKeyboard,
   safeReply,
 } from "./telegram-ctx.js";
 import { classifyError } from "./telemetry.js";
@@ -146,7 +147,7 @@ export class TelegramBotService {
       ) {
         return;
       }
-      await safeReply((t) => ctx.reply(t), BOT_HELP_MESSAGE);
+      await replyWithMainKeyboard(ctx, BOT_HELP_MESSAGE);
     });
 
     this.bot.catch((err, ctx) => {

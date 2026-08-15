@@ -9,7 +9,7 @@ import {
 import { logger, truncateForLog } from "./log.js";
 import { MediaGroupBuffer } from "./media-group-buffer.js";
 import { synthesizeSpeech, transcribeAudio } from "./openai-audio.js";
-import { safeReply } from "./telegram-ctx.js";
+import { MAIN_KEYBOARD, replyWithMainKeyboard } from "./telegram-ctx.js";
 import { classifyError } from "./telemetry.js";
 import type { ReplyMode, UsersStore } from "./users-store.js";
 
@@ -49,8 +49,8 @@ export class ChatHandlers {
         if (caption) {
           await this.runTurn(first.ctx, first.userId, caption);
         } else {
-          await safeReply(
-            (t) => first.ctx.reply(t),
+          await replyWithMainKeyboard(
+            first.ctx,
             `Сохранил (${lastCount}). Напиши, что с этим сделать.`,
           );
         }
@@ -73,7 +73,7 @@ export class ChatHandlers {
         step: "session_clear",
         result: "success",
       });
-      await safeReply((t) => ctx.reply(t), "Контекст сброшен.");
+      await replyWithMainKeyboard(ctx, "Контекст сброшен.");
     } catch (err) {
       logger.exception("[telegram] session clear failed", err, {
         component: "telegram",
@@ -82,8 +82,8 @@ export class ChatHandlers {
         result: "error",
         error_type: classifyError(err),
       });
-      await safeReply(
-        (t) => ctx.reply(t),
+      await replyWithMainKeyboard(
+        ctx,
         "Не удалось сбросить контекст. Попробуй ещё раз.",
       );
     }
@@ -98,8 +98,8 @@ export class ChatHandlers {
   async handleVoice(ctx: Context, userId: number): Promise<void> {
     const message = ctx.message;
     if (!message || !("voice" in message) || !message.voice) {
-      await safeReply(
-        (t) => ctx.reply(t),
+      await replyWithMainKeyboard(
+        ctx,
         "Не удалось прочитать голосовое сообщение.",
       );
       return;
@@ -109,15 +109,15 @@ export class ChatHandlers {
       voice.file_size &&
       voice.file_size > this.deps.config.MAX_VOICE_BYTES
     ) {
-      await safeReply(
-        (t) => ctx.reply(t),
+      await replyWithMainKeyboard(
+        ctx,
         "Голосовое слишком большое. Пришли покороче или текстом.",
       );
       return;
     }
     if (voice.duration > this.deps.config.MAX_VOICE_DURATION_SEC) {
-      await safeReply(
-        (t) => ctx.reply(t),
+      await replyWithMainKeyboard(
+        ctx,
         "Голосовое слишком длинное. Пришли покороче или текстом.",
       );
       return;
@@ -128,8 +128,8 @@ export class ChatHandlers {
       const fileLink = await ctx.telegram.getFileLink(voice.file_id);
       const audio = await this.downloadFile(fileLink.href);
       if (audio.length > this.deps.config.MAX_VOICE_BYTES) {
-        await safeReply(
-          (t) => ctx.reply(t),
+        await replyWithMainKeyboard(
+          ctx,
           "Голосовое слишком большое. Пришли покороче или текстом.",
         );
         return;
@@ -158,8 +158,8 @@ export class ChatHandlers {
         result: "error",
         error_type: classifyError(err),
       });
-      await safeReply(
-        (t) => ctx.reply(t),
+      await replyWithMainKeyboard(
+        ctx,
         "Не смог разобрать голосовое. Попробуй ещё раз или напиши текстом.",
       );
     }
@@ -168,7 +168,7 @@ export class ChatHandlers {
   async handlePhoto(ctx: Context, userId: number): Promise<void> {
     const message = ctx.message;
     if (!message || !("photo" in message) || !message.photo?.length) {
-      await safeReply((t) => ctx.reply(t), "Не удалось прочитать фото.");
+      await replyWithMainKeyboard(ctx, "Не удалось прочитать фото.");
       return;
     }
     const largest = message.photo[message.photo.length - 1]!;
@@ -176,10 +176,7 @@ export class ChatHandlers {
       largest.file_size &&
       largest.file_size > this.deps.config.MAX_ATTACHMENT_BYTES
     ) {
-      await safeReply(
-        (t) => ctx.reply(t),
-        "Файл слишком большой. Пришли поменьше.",
-      );
+      await replyWithMainKeyboard(ctx, "Файл слишком большой. Пришли поменьше.");
       return;
     }
     const caption =
@@ -208,7 +205,7 @@ export class ChatHandlers {
   async handleDocument(ctx: Context, userId: number): Promise<void> {
     const message = ctx.message;
     if (!message || !("document" in message) || !message.document) {
-      await safeReply((t) => ctx.reply(t), "Не удалось прочитать файл.");
+      await replyWithMainKeyboard(ctx, "Не удалось прочитать файл.");
       return;
     }
     const doc = message.document;
@@ -216,10 +213,7 @@ export class ChatHandlers {
       doc.file_size &&
       doc.file_size > this.deps.config.MAX_ATTACHMENT_BYTES
     ) {
-      await safeReply(
-        (t) => ctx.reply(t),
-        "Файл слишком большой. Пришли поменьше.",
-      );
+      await replyWithMainKeyboard(ctx, "Файл слишком большой. Пришли поменьше.");
       return;
     }
     const mime = doc.mime_type?.trim() || "application/octet-stream";
@@ -253,8 +247,8 @@ export class ChatHandlers {
         await this.runTurn(pending.ctx, pending.userId, pending.caption.trim());
         return;
       }
-      await safeReply(
-        (t) => pending.ctx.reply(t),
+      await replyWithMainKeyboard(
+        pending.ctx,
         `Сохранил (${count}). Напиши, что с этим сделать.`,
       );
     } catch (err) {
@@ -265,8 +259,8 @@ export class ChatHandlers {
         result: "error",
         error_type: classifyError(err),
       });
-      await safeReply(
-        (t) => pending.ctx.reply(t),
+      await replyWithMainKeyboard(
+        pending.ctx,
         "Не удалось сохранить файл. Попробуй ещё раз.",
       );
     }
@@ -334,8 +328,8 @@ export class ChatHandlers {
         error_type: classifyError(err),
         user_text: truncateForLog(userText),
       });
-      await safeReply(
-        (t) => ctx.reply(t),
+      await replyWithMainKeyboard(
+        ctx,
         "Что-то сломалось на моей стороне. Попробуй ещё раз.",
       );
     }
@@ -347,7 +341,7 @@ export class ChatHandlers {
     mode: ReplyMode,
   ): Promise<void> {
     if (mode === "text") {
-      await safeReply((t) => ctx.reply(t), text);
+      await replyWithMainKeyboard(ctx, text);
       return;
     }
     try {
@@ -365,7 +359,10 @@ export class ChatHandlers {
           this.deps.toVoiceOgg ?? ((buf) => toTelegramVoiceOgg(buf));
         audio = await convert(audio);
       }
-      await ctx.replyWithVoice({ source: audio, filename: "jarvis.ogg" });
+      await ctx.replyWithVoice(
+        { source: audio, filename: "jarvis.ogg" },
+        MAIN_KEYBOARD,
+      );
     } catch (err) {
       logger.exception(
         "[telegram] TTS/sendVoice failed; falling back to text",
@@ -378,7 +375,7 @@ export class ChatHandlers {
           error_type: classifyError(err),
         },
       );
-      await safeReply((t) => ctx.reply(t), text);
+      await replyWithMainKeyboard(ctx, text);
     }
   }
 

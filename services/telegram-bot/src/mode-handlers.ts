@@ -4,8 +4,7 @@ import type { ReplyMode, UsersStore } from "./users-store.js";
 import {
   formatModeHelp,
   getCommandArgument,
-  MAIN_KEYBOARD,
-  safeReply,
+  replyWithMainKeyboard,
 } from "./telegram-ctx.js";
 
 export class ModeHandlers {
@@ -18,25 +17,22 @@ export class ModeHandlers {
       handler: "start",
       step: "reply",
     });
-    await safeReply(
-      (text) => ctx.reply(text, MAIN_KEYBOARD),
-      formatModeHelp(mode),
-    );
+    await replyWithMainKeyboard(ctx, formatModeHelp(mode));
   }
 
   async handleMode(ctx: Context, userId: number): Promise<void> {
     const arg = getCommandArgument(ctx)?.toLowerCase();
     if (!arg) {
       const mode = await this.users.getReplyMode(userId);
-      await safeReply(
-        (text) => ctx.reply(text),
+      await replyWithMainKeyboard(
+        ctx,
         `Режим ответа: ${mode}.\nИспользуй /mode text или /mode voice.`,
       );
       return;
     }
     if (arg !== "text" && arg !== "voice") {
-      await safeReply(
-        (text) => ctx.reply(text),
+      await replyWithMainKeyboard(
+        ctx,
         "Неизвестный режим. Используй /mode text или /mode voice.",
       );
       return;
@@ -49,8 +45,8 @@ export class ModeHandlers {
       result: "success",
       reply_mode: mode,
     });
-    await safeReply(
-      (text) => ctx.reply(text),
+    await replyWithMainKeyboard(
+      ctx,
       `Ок, буду отвечать ${mode === "voice" ? "голосом" : "текстом"}.`,
     );
   }

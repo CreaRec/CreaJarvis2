@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ModeHandlers } from "./mode-handlers.js";
+import { MAIN_KEYBOARD } from "./telegram-ctx.js";
 import type { UsersStore } from "./users-store.js";
 
 describe("ModeHandlers", () => {
@@ -16,6 +17,10 @@ describe("ModeHandlers", () => {
     };
     await handlers.handleMode(ctx as never, 1);
     expect(users.setReplyMode).toHaveBeenCalledWith(1, "voice");
+    expect(ctx.reply).toHaveBeenCalledWith(
+      "Ок, буду отвечать голосом.",
+      MAIN_KEYBOARD,
+    );
   });
 
   it("attaches main keyboard on /start", async () => {
@@ -32,10 +37,6 @@ describe("ModeHandlers", () => {
     expect(ctx.reply).toHaveBeenCalledTimes(1);
     const [text, extra] = ctx.reply.mock.calls[0]!;
     expect(text).toContain("Текущий режим ответа: voice.");
-    expect(extra.reply_markup).toMatchObject({
-      keyboard: [["mode", "new"]],
-      resize_keyboard: true,
-      is_persistent: true,
-    });
+    expect(extra).toBe(MAIN_KEYBOARD);
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { ChatHandlers } from "./chat-handlers.js";
 import type { BotConfig } from "./config.js";
+import { MAIN_KEYBOARD } from "./telegram-ctx.js";
 import type { UsersStore } from "./users-store.js";
 
 function makeConfig(): BotConfig {
@@ -44,7 +45,7 @@ describe("ChatHandlers", () => {
         userId: "42",
       }),
     );
-    expect(ctx.reply).toHaveBeenCalledWith("ответ");
+    expect(ctx.reply).toHaveBeenCalledWith("ответ", MAIN_KEYBOARD);
   });
 
   it("clears session on /new", async () => {
@@ -66,7 +67,7 @@ describe("ChatHandlers", () => {
     expect(clearSession).toHaveBeenCalledWith(
       expect.objectContaining({ userId: "7" }),
     );
-    expect(ctx.reply).toHaveBeenCalledWith("Контекст сброшен.");
+    expect(ctx.reply).toHaveBeenCalledWith("Контекст сброшен.", MAIN_KEYBOARD);
   });
 
   it("stages photo without caption via inboxAdd", async () => {
@@ -104,6 +105,7 @@ describe("ChatHandlers", () => {
     );
     expect(ctx.reply).toHaveBeenCalledWith(
       expect.stringContaining("Сохранил (1)"),
+      MAIN_KEYBOARD,
     );
   });
 });
