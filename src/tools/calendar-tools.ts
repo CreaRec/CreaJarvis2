@@ -14,10 +14,16 @@ import { toPublic, type EventStore } from "../events/store.js";
 import type { EventRecord } from "../events/types.js";
 import { syncAppleCalendarToEvents } from "../events/apple-sync.js";
 import {
+  findDuplicateCandidates,
+  ON_DUPLICATE_CHOICES,
+  type OnDuplicate,
+} from "../calendar/duplicates.js";
+import {
   dayEndUtc,
   dayStartUtc,
   formatLocal,
   localDateString,
+  parseZonedDateTime,
 } from "../utils/time/index.js";
 import { logger, truncateForLog } from "../log.js";
 import { classifyError, recordVoiceError } from "../telemetry.js";
@@ -42,6 +48,10 @@ function alarmMinutesFromToolParam(
 function parseIso(iso: string): Date | null {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function parseToolDateTime(iso: string, timeZone: string): Date | null {
+  return parseZonedDateTime(iso, timeZone);
 }
 
 /**
@@ -356,6 +366,45 @@ function rejectComplexWrite(event: EventRecord): string | null {
   return null;
 }
 
+function pickReplaceTarget(
+  matches: Array<{ uid: string; href: string; event_id: string | null }>,
+  opts: { replace_event_id?: string; replace_event_uid?: string },
+):
+  | { ok: true; match: { uid: string; href: string; event_id: string | null } }
+  | { ok: false; error: string } {
+  if (matches.length === 0) {
+    return { ok: false, error: "No matching event to replace" };
+  }
+  if (opts.replace_event_id) {
+    const match = matches.find((m) => m.event_id === opts.replace_event_id);
+    if (!match) {
+      return {
+        ok: false,
+        error: "replace_event_id does not match a duplicate candidate",
+      };
+    }
+    return { ok: true, match };
+  }
+  if (opts.replace_event_uid) {
+    const match = matches.find((m) => m.uid === opts.replace_event_uid);
+    if (!match) {
+      return {
+        ok: false,
+        error: "replace_event_uid does not match a duplicate candidate",
+      };
+    }
+    return { ok: true, match };
+  }
+  if (matches.length > 1) {
+    return {
+      ok: false,
+      error:
+        "Multiple similar events that day. Pass replace_event_id or replace_event_uid.",
+    };
+  }
+  return { ok: true, match: matches[0]! };
+}
+
 export function createCalendarTools(deps: {
   calendar: ICloudCalendarClient;
   store: EventStore;
@@ -367,18 +416,20 @@ export function createCalendarTools(deps: {
     {
       name: "calendar_create_event",
       description:
-        "Create an Apple Calendar event (standalone). Default duration 30 minutes; default alarms at 1h and 15m before start (override with alarm_minutes_before: [] to clear, [30] for custom, etc.). Pass location from places_search when the user names a venue. Result includes start_iso/end_iso and start_local/end_local — speak local fields only. Does not create or link a reminder.",
+        "Create an Apple Calendar event (standalone). start/end are user-local wall times: prefer naive ISO (2026-08-26T16:00:00) or numeric offset; never put Z on a local clock time. Default duration 30 minutes; default alarms at 1h and 15m before start. Pass location from places_search when the user names a venue. Before creating, checks Apple Calendar for overlapping times and similar events that day. If matches exist, does not create — returns need_clarification; ask the user skip / replace / keep both, then recall with on_duplicate. Result includes start_iso/end_iso and start_local/end_local — speak local fields only. Does not create or link a reminder.",
       parameters: {
         type: "object",
         properties: {
           title: { type: "string", description: "Event title" },
           start: {
             type: "string",
-            description: "Event start ISO-8601",
+            description:
+              "Event start. Naive YYYY-MM-DDTHH:MM is USER_TIMEZONE wall time. Z/offset is an absolute instant.",
           },
           end: {
             type: "string",
-            description: "Optional end ISO-8601; default start + 30 minutes",
+            description:
+              "Optional end (same rules as start); default start + 30 minutes",
           },
           notes: { type: "string", description: "Optional event notes" },
           alarm_minutes_before: {
@@ -406,6 +457,22 @@ export function createCalendarTools(deps: {
             type: "string",
             description: "Original user phrase",
           },
+          on_duplicate: {
+            type: "string",
+            enum: [...ON_DUPLICATE_CHOICES],
+            description:
+              "Required after need_clarification: skip (do not create), replace (delete the match then create), keep_both (create anyway). Omit on first call.",
+          },
+          replace_event_id: {
+            type: "string",
+            description:
+              "When on_duplicate=replace and several matches, which local event_id to replace",
+          },
+          replace_event_uid: {
+            type: "string",
+            description:
+              "When on_duplicate=replace and several matches, which Apple event_uid to replace",
+          },
         },
         required: ["title", "start"],
       },
@@ -417,19 +484,23 @@ export function createCalendarTools(deps: {
           notes: z.string().optional(),
           alarm_minutes_before: alarmMinutesBeforeSchema,
           raw_utterance: z.string().optional(),
+          on_duplicate: z.enum(ON_DUPLICATE_CHOICES).optional(),
+          replace_event_id: z.string().uuid().optional(),
+          replace_event_uid: z.string().min(1).optional(),
           ...locationToolFields,
         });
         const parsed = schema.safeParse(raw);
         if (!parsed.success) {
           return { ok: false, error: parsed.error.message };
         }
-        const start = parseIso(parsed.data.start);
+        const timeZone = tz();
+        const start = parseToolDateTime(parsed.data.start, timeZone);
         if (!start) {
           return { ok: false, error: "Invalid start ISO timestamp" };
         }
         let end: Date;
         if (parsed.data.end) {
-          const e = parseIso(parsed.data.end);
+          const e = parseToolDateTime(parsed.data.end, timeZone);
           if (!e) return { ok: false, error: "Invalid end ISO timestamp" };
           if (e.getTime() <= start.getTime()) {
             return { ok: false, error: "end must be after start" };
@@ -449,6 +520,144 @@ export function createCalendarTools(deps: {
           },
           parsed.data,
         );
+        const location = icsLocationFromFields(loc) ?? null;
+        const times = publicDateTimes(start, end, timeZone);
+        const proposed = {
+          title: parsed.data.title,
+          location,
+          ...times,
+        };
+
+        const onDuplicate: OnDuplicate | undefined = parsed.data.on_duplicate;
+        const day = localDateString(start, timeZone);
+        const listed = await deps.calendar.listEvents({
+          from: dayStartUtc(day, timeZone),
+          to: dayEndUtc(day, timeZone),
+          limit: 50,
+        });
+        if (!listed.ok) {
+          logger.warn("[calendar] create duplicate check failed", {
+            component: "calendar",
+            handler: "tool",
+            step: "finish",
+            tool: "calendar_create_event",
+            result: "error",
+            error_message: truncateForLog(listed.error),
+          });
+          recordVoiceError({
+            errorType: classifyError(listed.error),
+            handler: "tool",
+          });
+          return {
+            ok: false,
+            error: `Cannot check calendar for duplicates: ${listed.error}`,
+          };
+        }
+        const local = await deps.store.getByUids(
+          listed.data.events.map((e) => e.uid),
+        );
+        const byUid = new Map(local.map((e) => [e.uid, e]));
+        const matches = findDuplicateCandidates({
+          title: parsed.data.title,
+          location,
+          start,
+          end,
+          timeZone,
+          events: listed.data.events.map((e) => ({
+            uid: e.uid,
+            href: e.href,
+            event_id: byUid.get(e.uid)?.id ?? null,
+            title: e.title,
+            location: e.location,
+            start: e.start ? parseIso(e.start) : null,
+            end: e.end ? parseIso(e.end) : null,
+            isAllDay: e.isAllDay,
+          })),
+        });
+
+        if (matches.length > 0 && !onDuplicate) {
+          logger.info("[calendar] create needs duplicate choice", {
+            component: "calendar",
+            handler: "tool",
+            step: "finish",
+            tool: "calendar_create_event",
+            result: "clarification",
+            count: matches.length,
+            start_iso: times.start_iso,
+            start_local: times.start_local,
+          });
+          return {
+            ok: true,
+            data: {
+              need_clarification: true,
+              reason: "duplicate_or_similar",
+              choices: [...ON_DUPLICATE_CHOICES],
+              proposed,
+              matches,
+            },
+          };
+        }
+
+        if (matches.length > 0 && onDuplicate === "skip") {
+          logger.info("[calendar] create skipped duplicate", {
+            component: "calendar",
+            handler: "tool",
+            step: "finish",
+            tool: "calendar_create_event",
+            result: "skipped",
+            count: matches.length,
+            start_iso: times.start_iso,
+            start_local: times.start_local,
+          });
+          return {
+            ok: true,
+            data: {
+              skipped: true,
+              reason: "duplicate",
+              proposed,
+              matches,
+            },
+          };
+        }
+
+        if (matches.length > 0 && onDuplicate === "replace") {
+          const target = pickReplaceTarget(matches, parsed.data);
+          if (!target.ok) return { ok: false, error: target.error };
+          const existing = byUid.get(target.match.uid);
+          const complex = existing ? rejectComplexWrite(existing) : null;
+          if (complex) return { ok: false, error: complex };
+          const listedMatch = listed.data.events.find(
+            (e) => e.uid === target.match.uid,
+          );
+          if (listedMatch?.recurrenceRule || listedMatch?.recurrenceId) {
+            return {
+              ok: false,
+              error:
+                "Replacing recurring events is not supported yet. Use skip or keep_both.",
+            };
+          }
+          if (listedMatch?.isAllDay) {
+            return {
+              ok: false,
+              error:
+                "Replacing all-day events is not supported yet. Use skip or keep_both.",
+            };
+          }
+          const deleted = await deps.calendar.deleteEvent(target.match.href);
+          if (!deleted.ok) {
+            logger.warn("[calendar] replace delete failed", {
+              component: "calendar",
+              handler: "tool",
+              step: "finish",
+              tool: "calendar_create_event",
+              result: "error",
+              error_message: truncateForLog(deleted.error),
+            });
+            return { ok: false, error: deleted.error };
+          }
+          if (existing) await deps.store.delete(existing.id);
+        }
+
         const alarms = alarmMinutesFromToolParam(
           parsed.data.alarm_minutes_before,
         );
@@ -461,7 +670,7 @@ export function createCalendarTools(deps: {
             title: parsed.data.title,
             start,
             end,
-            timeZone: tz(),
+            timeZone,
             notes: parsed.data.notes,
             alarmMinutesBefore: resolvedAlarms,
           }),
@@ -473,6 +682,8 @@ export function createCalendarTools(deps: {
             step: "finish",
             tool: "calendar_create_event",
             result: "error",
+            start_iso: times.start_iso,
+            start_local: times.start_local,
             error_message: truncateForLog(created.error),
           });
           recordVoiceError({
@@ -490,7 +701,7 @@ export function createCalendarTools(deps: {
             title: parsed.data.title,
             startAt: start,
             endAt: created.data.end,
-            timezone: tz(),
+            timezone: timeZone,
             notes: parsed.data.notes ?? null,
             alarmMinutesBefore: resolvedAlarms,
             recurrenceId: "",
@@ -510,6 +721,8 @@ export function createCalendarTools(deps: {
             step: "finish",
             tool: "calendar_create_event",
             result: "error",
+            start_iso: times.start_iso,
+            start_local: times.start_local,
             error_message: truncateForLog(message),
           });
           await deps.calendar.deleteEvent(created.data.href).catch(() => undefined);
@@ -525,12 +738,15 @@ export function createCalendarTools(deps: {
           step: "finish",
           tool: "calendar_create_event",
           result: "success",
+          start: truncateForLog(parsed.data.start, 64),
+          start_iso: times.start_iso,
+          start_local: times.start_local,
         });
         return {
           ok: true,
           data: {
             ...toPublic(saved),
-            location: icsLocationFromFields(loc) ?? null,
+            location,
           },
         };
       },
@@ -731,14 +947,14 @@ export function createCalendarTools(deps: {
 
         let start = event.startAt;
         if (parsed.data.start !== undefined) {
-          const d = parseIso(parsed.data.start);
+          const d = parseToolDateTime(parsed.data.start, tz());
           if (!d) return { ok: false, error: "Invalid start" };
           start = d;
           patch.start = start;
         }
 
         if (parsed.data.end !== undefined) {
-          const d = parseIso(parsed.data.end);
+          const d = parseToolDateTime(parsed.data.end, tz());
           if (!d) return { ok: false, error: "Invalid end" };
           if (d.getTime() <= start.getTime()) {
             return { ok: false, error: "end must be after start" };

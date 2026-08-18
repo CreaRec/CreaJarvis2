@@ -23,6 +23,8 @@ describe("tool-log", () => {
       toolArgsSummaryAttrs({
         from: "2026-08-01T00:00:00.000Z",
         to: "2026-09-01T00:00:00.000Z",
+        start: "2026-08-26T16:00:00",
+        end: "2026-08-26T17:00:00",
         limit: 30,
         status: "pending",
         secret: "should-not-appear",
@@ -30,6 +32,8 @@ describe("tool-log", () => {
     ).toEqual({
       from: "2026-08-01T00:00:00.000Z",
       to: "2026-09-01T00:00:00.000Z",
+      start: "2026-08-26T16:00:00",
+      end: "2026-08-26T17:00:00",
       limit: 30,
       status: "pending",
     });

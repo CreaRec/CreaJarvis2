@@ -136,7 +136,7 @@ function makeCalendar(
 ): ICloudCalendarClient {
   return {
     createEvent: vi.fn(),
-    listEvents: vi.fn(),
+    listEvents: vi.fn().mockResolvedValue({ ok: true, data: { events: [] } }),
     fetchAllEvents: vi.fn(),
     updateEvent: vi.fn(),
     deleteEvent: vi.fn(),
@@ -583,5 +583,300 @@ describe("createCalendarTools", () => {
       event.href,
       expect.objectContaining({ alarmMinutesBefore: [30] }),
     );
+  });
+
+  it("interprets naive start as USER_TIMEZONE wall time", async () => {
+    const store = makeStore({
+      create: vi.fn().mockResolvedValue(
+        makeEvent({
+          startAt: new Date("2026-08-26T21:00:00.000Z"),
+          endAt: new Date("2026-08-26T22:00:00.000Z"),
+        }),
+      ),
+    });
+    const calendar = makeCalendar({
+      createEvent: vi.fn().mockResolvedValue({
+        ok: true,
+        data: {
+          uid: "uid-local",
+          href: "https://caldav.example/uid-local.ics",
+          end: new Date("2026-08-26T22:00:00.000Z"),
+        },
+      }),
+    });
+    const gw = gatewayWith(calendar, store);
+    const result = await gw.execute("calendar_create_event", {
+      title: "Appointment with Dr. Jose G. Millar",
+      start: "2026-08-26T16:00:00",
+      end: "2026-08-26T17:00:00",
+    });
+    expect(result.ok).toBe(true);
+    expect(calendar.createEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        start: new Date("2026-08-26T21:00:00.000Z"),
+        end: new Date("2026-08-26T22:00:00.000Z"),
+      }),
+    );
+  });
+
+  it("asks before creating when a similar event exists that day", async () => {
+    const calendar = makeCalendar({
+      listEvents: vi.fn().mockResolvedValue({
+        ok: true,
+        data: {
+          events: [
+            {
+              uid: "apple-gabriel",
+              href: "https://caldav.example/gabriel.ics",
+              title: "Appointment: Checkup with Gabriel C Millar MD",
+              start: "2026-08-26T21:00:00.000Z",
+              end: "2026-08-26T22:00:00.000Z",
+              notes: null,
+              location: "PARK VALLEY PEDI",
+              geo: null,
+              recurrenceId: "",
+              recurrenceRule: null,
+              isAllDay: false,
+              cancelled: false,
+              sourceUpdatedAt: null,
+              alarmMinutesBefore: [],
+              timeZone: "America/Chicago",
+            },
+          ],
+        },
+      }),
+      createEvent: vi.fn(),
+    });
+    const gw = gatewayWith(calendar, makeStore());
+    const result = await gw.execute("calendar_create_event", {
+      title: "Appointment with Dr. Jose G. Millar",
+      start: "2026-08-26T11:00:00",
+      end: "2026-08-26T12:00:00",
+      location_address: "16010 Park Valley Dr, Ste 300, Round Rock, TX 78681",
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const data = result.data as {
+        need_clarification: boolean;
+        choices: string[];
+        matches: Array<{ uid: string; reasons: string[] }>;
+      };
+      expect(data.need_clarification).toBe(true);
+      expect(data.choices).toEqual(["skip", "replace", "keep_both"]);
+      expect(data.matches[0]?.uid).toBe("apple-gabriel");
+      expect(data.matches[0]?.reasons).toContain("similar_same_day");
+    }
+    expect(calendar.createEvent).not.toHaveBeenCalled();
+  });
+
+  it("skips create when on_duplicate is skip", async () => {
+    const calendar = makeCalendar({
+      listEvents: vi.fn().mockResolvedValue({
+        ok: true,
+        data: {
+          events: [
+            {
+              uid: "apple-gabriel",
+              href: "https://caldav.example/gabriel.ics",
+              title: "Appointment: Checkup with Gabriel C Millar MD",
+              start: "2026-08-26T21:00:00.000Z",
+              end: "2026-08-26T22:00:00.000Z",
+              notes: null,
+              location: "PARK VALLEY PEDI",
+              geo: null,
+              recurrenceId: "",
+              recurrenceRule: null,
+              isAllDay: false,
+              cancelled: false,
+              sourceUpdatedAt: null,
+              alarmMinutesBefore: [],
+              timeZone: "America/Chicago",
+            },
+          ],
+        },
+      }),
+      createEvent: vi.fn(),
+    });
+    const gw = gatewayWith(calendar, makeStore());
+    const result = await gw.execute("calendar_create_event", {
+      title: "Appointment with Dr. Jose G. Millar",
+      start: "2026-08-26T16:00:00",
+      on_duplicate: "skip",
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data).toMatchObject({ skipped: true, reason: "duplicate" });
+    }
+    expect(calendar.createEvent).not.toHaveBeenCalled();
+  });
+
+  it("creates anyway when on_duplicate is keep_both", async () => {
+    const store = makeStore({
+      create: vi.fn().mockResolvedValue(makeEvent()),
+    });
+    const calendar = makeCalendar({
+      listEvents: vi.fn().mockResolvedValue({
+        ok: true,
+        data: {
+          events: [
+            {
+              uid: "apple-gabriel",
+              href: "https://caldav.example/gabriel.ics",
+              title: "Appointment: Checkup with Gabriel C Millar MD",
+              start: "2026-08-26T21:00:00.000Z",
+              end: "2026-08-26T22:00:00.000Z",
+              notes: null,
+              location: "PARK VALLEY PEDI",
+              geo: null,
+              recurrenceId: "",
+              recurrenceRule: null,
+              isAllDay: false,
+              cancelled: false,
+              sourceUpdatedAt: null,
+              alarmMinutesBefore: [],
+              timeZone: "America/Chicago",
+            },
+          ],
+        },
+      }),
+      createEvent: vi.fn().mockResolvedValue({
+        ok: true,
+        data: {
+          uid: "uid-1",
+          href: "https://caldav.example/uid-1.ics",
+          end: new Date("2026-08-26T22:00:00.000Z"),
+        },
+      }),
+    });
+    const gw = gatewayWith(calendar, store);
+    const result = await gw.execute("calendar_create_event", {
+      title: "Appointment with Dr. Jose G. Millar",
+      start: "2026-08-26T16:00:00",
+      on_duplicate: "keep_both",
+    });
+    expect(result.ok).toBe(true);
+    expect(calendar.listEvents).toHaveBeenCalled();
+    expect(calendar.createEvent).toHaveBeenCalled();
+  });
+
+  it("replaces the matching event then creates", async () => {
+    const store = makeStore({
+      create: vi.fn().mockResolvedValue(makeEvent()),
+      getByUids: vi.fn().mockResolvedValue([
+        makeEvent({
+          id: EVENT_ID,
+          uid: "apple-gabriel",
+          href: "https://caldav.example/gabriel.ics",
+        }),
+      ]),
+      delete: vi.fn().mockResolvedValue(makeEvent({ uid: "apple-gabriel" })),
+    });
+    const calendar = makeCalendar({
+      listEvents: vi.fn().mockResolvedValue({
+        ok: true,
+        data: {
+          events: [
+            {
+              uid: "apple-gabriel",
+              href: "https://caldav.example/gabriel.ics",
+              title: "Appointment: Checkup with Gabriel C Millar MD",
+              start: "2026-08-26T21:00:00.000Z",
+              end: "2026-08-26T22:00:00.000Z",
+              notes: null,
+              location: "PARK VALLEY PEDI",
+              geo: null,
+              recurrenceId: "",
+              recurrenceRule: null,
+              isAllDay: false,
+              cancelled: false,
+              sourceUpdatedAt: null,
+              alarmMinutesBefore: [],
+              timeZone: "America/Chicago",
+            },
+          ],
+        },
+      }),
+      deleteEvent: vi
+        .fn()
+        .mockResolvedValue({ ok: true, data: { deleted: true } }),
+      createEvent: vi.fn().mockResolvedValue({
+        ok: true,
+        data: {
+          uid: "uid-1",
+          href: "https://caldav.example/uid-1.ics",
+          end: new Date("2026-08-26T22:00:00.000Z"),
+        },
+      }),
+    });
+    const gw = gatewayWith(calendar, store);
+    const result = await gw.execute("calendar_create_event", {
+      title: "Appointment with Dr. Jose G. Millar",
+      start: "2026-08-26T16:00:00",
+      on_duplicate: "replace",
+    });
+    expect(result.ok).toBe(true);
+    expect(calendar.deleteEvent).toHaveBeenCalledWith(
+      "https://caldav.example/gabriel.ics",
+    );
+    expect(store.delete).toHaveBeenCalledWith(EVENT_ID);
+    expect(calendar.createEvent).toHaveBeenCalled();
+  });
+
+  it("requires replace_event_uid when several matches exist", async () => {
+    const calendar = makeCalendar({
+      listEvents: vi.fn().mockResolvedValue({
+        ok: true,
+        data: {
+          events: [
+            {
+              uid: "millar-a",
+              href: "https://caldav.example/a.ics",
+              title: "Jose Millar",
+              start: "2026-08-26T16:00:00.000Z",
+              end: "2026-08-26T17:00:00.000Z",
+              notes: null,
+              location: null,
+              geo: null,
+              recurrenceId: "",
+              recurrenceRule: null,
+              isAllDay: false,
+              cancelled: false,
+              sourceUpdatedAt: null,
+              alarmMinutesBefore: [],
+              timeZone: "America/Chicago",
+            },
+            {
+              uid: "millar-b",
+              href: "https://caldav.example/b.ics",
+              title: "Gabriel Millar",
+              start: "2026-08-26T21:00:00.000Z",
+              end: "2026-08-26T22:00:00.000Z",
+              notes: null,
+              location: null,
+              geo: null,
+              recurrenceId: "",
+              recurrenceRule: null,
+              isAllDay: false,
+              cancelled: false,
+              sourceUpdatedAt: null,
+              alarmMinutesBefore: [],
+              timeZone: "America/Chicago",
+            },
+          ],
+        },
+      }),
+      createEvent: vi.fn(),
+    });
+    const gw = gatewayWith(calendar, makeStore());
+    const result = await gw.execute("calendar_create_event", {
+      title: "Millar appointment",
+      start: "2026-08-26T16:00:00",
+      on_duplicate: "replace",
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toMatch(/replace_event/i);
+    }
+    expect(calendar.createEvent).not.toHaveBeenCalled();
   });
 });

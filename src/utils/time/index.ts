@@ -3,6 +3,7 @@ export {
   fixedUtcOffsetMinutes,
   formatLocal,
   localDateString,
+  parseZonedDateTime,
   zonedLocalToUtc,
   zonedParts,
 } from "./zoned.js";

@@ -52,6 +52,7 @@ const BODY_ATTR_KEYS = [
   "count",
   "from",
   "to",
+  "start_local",
   "user_text",
   "error_type",
   "turn",

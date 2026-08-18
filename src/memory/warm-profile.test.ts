@@ -90,6 +90,9 @@ describe("buildSessionInstructions", () => {
     expect(text).toContain("Apple Calendar:");
     expect(text).toContain("calendar_create_event");
     expect(text).toContain("calendar_create_event directly");
+    expect(text).toContain("NEVER attach Z");
+    expect(text).toContain("need_clarification");
+    expect(text).toContain("on_duplicate");
     expect(text).toContain("do not theme_add_entry");
     expect(text).toContain("do not ask the user to repeat known times");
     expect(text).toContain("only a real http(s) URL");

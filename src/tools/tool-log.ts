@@ -12,6 +12,12 @@ export function toolArgsSummaryAttrs(args: unknown): LogAttributes {
   if (typeof o.to === "string" && o.to.trim()) {
     out.to = truncateForLog(o.to, 64);
   }
+  if (typeof o.start === "string" && o.start.trim()) {
+    out.start = truncateForLog(o.start, 64);
+  }
+  if (typeof o.end === "string" && o.end.trim()) {
+    out.end = truncateForLog(o.end, 64);
+  }
   if (typeof o.limit === "number" && Number.isFinite(o.limit)) {
     out.limit = o.limit;
   }

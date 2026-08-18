@@ -164,3 +164,37 @@ export function localDateString(date: Date, timeZone: string): string {
   const p = zonedParts(date, timeZone);
   return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
 }
+
+const HAS_EXPLICIT_TZ = /(?:[zZ]|[+-]\d{2}:?\d{2})$/;
+const NAIVE_LOCAL_RE =
+  /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?$/;
+
+/**
+ * Parse a tool datetime. Naive `YYYY-MM-DDTHH:MM[:SS]` (no Z/offset) is
+ * wall time in `timeZone`. Explicit Z or ±HH:MM is an absolute instant.
+ */
+export function parseZonedDateTime(
+  raw: string,
+  timeZone: string,
+): Date | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  if (!HAS_EXPLICIT_TZ.test(trimmed)) {
+    const m = NAIVE_LOCAL_RE.exec(trimmed);
+    if (m) {
+      return zonedLocalToUtc(
+        timeZone,
+        Number(m[1]),
+        Number(m[2]),
+        Number(m[3]),
+        Number(m[4]),
+        Number(m[5]),
+        Number(m[6] ?? 0),
+      );
+    }
+  }
+
+  const d = new Date(trimmed);
+  return Number.isNaN(d.getTime()) ? null : d;
+}

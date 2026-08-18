@@ -3,6 +3,7 @@ import {
   addDaysLocal,
   fixedUtcOffsetMinutes,
   localDateString,
+  parseZonedDateTime,
   zonedLocalToUtc,
   zonedParts,
 } from "./zoned.js";
@@ -37,6 +38,24 @@ describe("zonedParts", () => {
       second: 0,
       weekday: 1,
     });
+  });
+});
+
+describe("parseZonedDateTime", () => {
+  it("treats naive datetimes as wall time in the zone", () => {
+    // 4pm CDT (UTC-5) on Aug 26
+    const utc = parseZonedDateTime("2026-08-26T16:00:00", TZ);
+    expect(utc?.toISOString()).toBe("2026-08-26T21:00:00.000Z");
+  });
+
+  it("keeps explicit Z as an absolute UTC instant", () => {
+    const utc = parseZonedDateTime("2026-08-26T16:00:00Z", TZ);
+    expect(utc?.toISOString()).toBe("2026-08-26T16:00:00.000Z");
+  });
+
+  it("honors a numeric offset", () => {
+    const utc = parseZonedDateTime("2026-08-26T16:00:00-05:00", TZ);
+    expect(utc?.toISOString()).toBe("2026-08-26T21:00:00.000Z");
   });
 });
 
