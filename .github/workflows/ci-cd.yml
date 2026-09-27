@@ -12,7 +12,8 @@ env:
   DEPLOY_DIR: /home/crearec/crea-jarvis2
 
 jobs:
-  # core / telegram / bridge → publish that image. compose → redeploy without mandatory rebuild.
+  # core / bridge → publish that image. compose → redeploy without mandatory rebuild.
+  # telegram publish/redeploy disabled (CRE-9); telegram path filter still used for CI builds.
   changes:
     runs-on: ubuntu-latest
     permissions:
@@ -212,13 +213,19 @@ jobs:
           secrets: |
             NODE_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }}
 
+  # CRE-9: Telegram Jarvis GHCR publish disabled (Trip Planner-style teardown).
+  # Job kept skipped so deploy/ghcr_cleanup needs-graph stays valid. Tests +
+  # PR image build (push: false) above still run. Restore by replacing `if: false`
+  # with the previous push-to-main + paths-filter condition.
   publish_telegram:
     runs-on: ubuntu-latest
     needs: [test, changes]
-    if: >-
-      github.event_name == 'push'
-      && github.ref == 'refs/heads/main'
-      && needs.changes.outputs.telegram == 'true'
+    if: false
+    # Previously:
+    # if: >-
+    #   github.event_name == 'push'
+    #   && github.ref == 'refs/heads/main'
+    #   && needs.changes.outputs.telegram == 'true'
     permissions:
       contents: read
       packages: write
@@ -296,6 +303,9 @@ jobs:
           secrets: |
             NODE_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }}
 
+  # CRE-9: telegram-only path changes no longer trigger SSH deploy. Core /
+  # bridge / compose-file changes still redeploy the stack, but never bump
+  # TELEGRAM_IMAGE_TAG (publish_telegram is disabled above).
   deploy:
     runs-on: ubuntu-latest
     needs: [test, changes, publish_core, publish_telegram, publish_bridge]
@@ -307,7 +317,6 @@ jobs:
       && needs.test.result == 'success'
       && (
         needs.changes.outputs.core == 'true'
-        || needs.changes.outputs.telegram == 'true'
         || needs.changes.outputs.bridge == 'true'
         || needs.changes.outputs.compose == 'true'
       )
@@ -337,10 +346,8 @@ jobs:
           SSH_USER: ${{ secrets.DEPLOY_USER }}
           SERVER_HOST: ${{ secrets.DEPLOY_HOST }}
           CORE_IMAGE_TAG: ${{ needs.publish_core.outputs.image_tag }}
-          TELEGRAM_IMAGE_TAG_NEW: ${{ needs.publish_telegram.outputs.image_tag }}
           BRIDGE_IMAGE_TAG_NEW: ${{ needs.publish_bridge.outputs.image_tag }}
           CORE_CHANGED: ${{ needs.changes.outputs.core }}
-          TELEGRAM_CHANGED: ${{ needs.changes.outputs.telegram }}
           BRIDGE_CHANGED: ${{ needs.changes.outputs.bridge }}
         run: |
           set -euo pipefail
@@ -365,11 +372,9 @@ jobs:
           fi
 
           # Export tags only for images published in this run; leave others from .env.
+          # CRE-9: never export TELEGRAM_IMAGE_TAG — Telegram GHCR publish is off.
           if [ '${CORE_CHANGED}' = 'true' ] && [ -n '${CORE_IMAGE_TAG}' ]; then
             export IMAGE_TAG='${CORE_IMAGE_TAG}'
-          fi
-          if [ '${TELEGRAM_CHANGED}' = 'true' ] && [ -n '${TELEGRAM_IMAGE_TAG_NEW}' ]; then
-            export TELEGRAM_IMAGE_TAG='${TELEGRAM_IMAGE_TAG_NEW}'
           fi
           if [ '${BRIDGE_CHANGED}' = 'true' ] && [ -n '${BRIDGE_IMAGE_TAG_NEW}' ]; then
             export BRIDGE_IMAGE_TAG='${BRIDGE_IMAGE_TAG_NEW}'
@@ -380,9 +385,6 @@ jobs:
           docker compose ps
           if [ '${CORE_CHANGED}' = 'true' ]; then
             docker compose logs --tail=30 core || true
-          fi
-          if [ '${TELEGRAM_CHANGED}' = 'true' ]; then
-            docker compose logs --tail=30 telegram-bot || true
           fi
           if [ '${BRIDGE_CHANGED}' = 'true' ]; then
             docker compose logs --tail=30 esp-syslog-bridge || true

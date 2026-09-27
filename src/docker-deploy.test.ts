@@ -71,6 +71,35 @@ describe("docker deploy contract", () => {
     expect(workflow).toMatch(/crea-jarvis2-telegram/);
   });
 
+  it("CRE-9 disables Telegram GHCR publish and telegram-only deploy triggers", async () => {
+    const workflow = await readFile(
+      path.join(repoRoot, ".github/workflows/ci-cd.yml"),
+      "utf8",
+    );
+    const active = workflow
+      .split("\n")
+      .filter((line) => !/^\s*#/.test(line))
+      .join("\n");
+
+    // publish_telegram stays in the graph but never runs on push to main
+    expect(active).toMatch(/publish_telegram:[\s\S]*?\n\s*if:\s*false/);
+
+    // Shared deploy job: telegram path changes must not be a trigger.
+    const deployJob = active.match(
+      /\n\s*deploy:\n[\s\S]*?(?=\n\s*[a-z_]+:\n|\n*$)/,
+    )?.[0];
+    expect(deployJob).toBeTruthy();
+    expect(deployJob!).not.toMatch(
+      /needs\.changes\.outputs\.telegram\s*==\s*'true'/,
+    );
+    expect(deployJob!).not.toMatch(/export TELEGRAM_IMAGE_TAG=/);
+    expect(deployJob!).not.toMatch(/TELEGRAM_CHANGED/);
+
+    // source + tests remain (Trip Planner spirit: disable deploy, keep CI)
+    expect(workflow).toMatch(/working-directory:\s*services\/telegram-bot/);
+    expect(workflow).toMatch(/Build telegram image \(no push\)/);
+  });
+
   it("CI prunes GHCR to keep 10 sha-* tags and preserve main", async () => {
     const workflow = await readFile(
       path.join(repoRoot, ".github/workflows/ci-cd.yml"),

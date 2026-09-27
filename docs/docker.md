@@ -11,15 +11,18 @@ Deploy directory: `/home/crearec/crea-jarvis2`
 
 The desktop client is **not** built or deployed. CI runs its pytest suite only. Run the client on Mac/host machines against Core over WebSocket.
 
+**CRE-9:** Automatic GHCR publish + redeploy of `crea-jarvis2-telegram` / `telegram-bot` is disabled. `services/telegram-bot` still has source, tests, and a no-push CI image build; Core and ESP bridge keep publishing and deploying. Re-enable by restoring `publish_telegram` in `.github/workflows/ci-cd.yml`.
+
 ## How a release works
 
 1. Merge or push to `main`.
-2. Actions runs Core tests, bridge tests, desktop tests, ESP host tests, and builds changed images.
+2. Actions runs Core tests, bridge tests, desktop tests, ESP host tests, Telegram bot tests, and builds changed images.
 3. **Path filters** decide what publishes:
    - Core paths → push `crea-jarvis2` (`main` + `sha-<short>`)
    - `services/esp-syslog-bridge/**` → push `crea-jarvis2-esp-syslog`
+   - `services/telegram-bot/**` → **no publish** (CRE-9; job gated `if: false`)
    - `docker-compose.yml` alone → redeploy without rebuilding images
-4. Actions copies `docker-compose.yml` to the server, exports **only** the image tags published in that run (`IMAGE_TAG` / `BRIDGE_IMAGE_TAG`), then `docker compose pull && docker compose up -d`.
+4. Actions copies `docker-compose.yml` to the server, exports **only** the image tags published in that run (`IMAGE_TAG` / `BRIDGE_IMAGE_TAG`; never `TELEGRAM_IMAGE_TAG`), then `docker compose pull && docker compose up -d`. Telegram-only path changes do not SSH-deploy.
 5. After a successful image publish, `ghcr_cleanup` keeps the **10** newest `sha-*` tags per package, always preserves `:main`, and deletes untagged/orphaned manifests (buildx attestations left behind when tags move).
 
 App secrets stay on the server in `.env`. Postgres data stays in `./data/postgres`; Redis AOF in `./data/redis`. CI never mutates `.env` and never touches Postgres/Redis volumes.
