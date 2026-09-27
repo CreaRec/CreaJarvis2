@@ -13,6 +13,9 @@ env:
   DEPLOY_DIR: /home/crearec/crea-jarvis2
 
 jobs:
+  # Production Docker stack paused on debian server (CRE-*): publish_core, publish_bridge,
+  # deploy, and ghcr_cleanup use `if: false` until intentionally re-enabled. Tests + PR
+  # image builds (push: false) still run. See docs/docker.md.
   # core / bridge → publish that image. compose → redeploy without mandatory rebuild.
   # CRE-9: telegram-bot removed from compose; no telegram path filter / publish / redeploy.
   changes:
@@ -157,13 +160,18 @@ jobs:
           secrets: |
             NODE_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }}
 
+  # GHCR publish disabled while production stack is paused. Job kept skipped so
+  # deploy/ghcr_cleanup needs-graph stays valid. Restore by replacing `if: false`
+  # with the previous push-to-main + paths-filter condition below.
   publish_core:
     runs-on: ubuntu-latest
     needs: [test, changes]
-    if: >-
-      github.event_name == 'push'
-      && github.ref == 'refs/heads/main'
-      && needs.changes.outputs.core == 'true'
+    if: false
+    # Previously:
+    # if: >-
+    #   github.event_name == 'push'
+    #   && github.ref == 'refs/heads/main'
+    #   && needs.changes.outputs.core == 'true'
     permissions:
       contents: read
       packages: write
@@ -247,13 +255,16 @@ jobs:
           secrets: |
             NODE_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }}
 
+  # GHCR publish disabled while production stack is paused (same restore recipe as publish_core).
   publish_bridge:
     runs-on: ubuntu-latest
     needs: [test, changes]
-    if: >-
-      github.event_name == 'push'
-      && github.ref == 'refs/heads/main'
-      && needs.changes.outputs.bridge == 'true'
+    if: false
+    # Previously:
+    # if: >-
+    #   github.event_name == 'push'
+    #   && github.ref == 'refs/heads/main'
+    #   && needs.changes.outputs.bridge == 'true'
     permissions:
       contents: read
       packages: write
@@ -291,23 +302,27 @@ jobs:
 
   # CRE-9: deploy core/bridge (+ postgres/redis) only. Never recreate telegram-bot;
   # --remove-orphans drops a leftover telegram-bot container after compose retirement.
+  # Production SSH deploy disabled while stack is paused. Job kept skipped. Restore by
+  # replacing `if: false` with the previous always() + push-to-main condition below.
   deploy:
     runs-on: ubuntu-latest
     needs: [test, changes, publish_core, publish_telegram, publish_bridge]
-    if: >-
-      always()
-      && !cancelled()
-      && github.event_name == 'push'
-      && github.ref == 'refs/heads/main'
-      && needs.test.result == 'success'
-      && (
-        needs.changes.outputs.core == 'true'
-        || needs.changes.outputs.bridge == 'true'
-        || needs.changes.outputs.compose == 'true'
-      )
-      && (needs.publish_core.result == 'success' || needs.publish_core.result == 'skipped')
-      && (needs.publish_telegram.result == 'success' || needs.publish_telegram.result == 'skipped')
-      && (needs.publish_bridge.result == 'success' || needs.publish_bridge.result == 'skipped')
+    if: false
+    # Previously:
+    # if: >-
+    #   always()
+    #   && !cancelled()
+    #   && github.event_name == 'push'
+    #   && github.ref == 'refs/heads/main'
+    #   && needs.test.result == 'success'
+    #   && (
+    #     needs.changes.outputs.core == 'true'
+    #     || needs.changes.outputs.bridge == 'true'
+    #     || needs.changes.outputs.compose == 'true'
+    #   )
+    #   && (needs.publish_core.result == 'success' || needs.publish_core.result == 'skipped')
+    #   && (needs.publish_telegram.result == 'success' || needs.publish_telegram.result == 'skipped')
+    #   && (needs.publish_bridge.result == 'success' || needs.publish_bridge.result == 'skipped')
     steps:
       - uses: actions/checkout@v7
 
@@ -375,19 +390,22 @@ jobs:
 
   # Keep last 10 sha-* tags per package; never delete floating :main.
   # Package Settings → Manage Actions access must grant this repo Admin.
+  # Paused with publish jobs; restore by replacing `if: false` with the previous condition.
   ghcr_cleanup:
     runs-on: ubuntu-latest
     needs: [publish_core, publish_telegram, publish_bridge]
-    if: >-
-      always()
-      && !cancelled()
-      && github.event_name == 'push'
-      && github.ref == 'refs/heads/main'
-      && (
-        needs.publish_core.result == 'success'
-        || needs.publish_telegram.result == 'success'
-        || needs.publish_bridge.result == 'success'
-      )
+    if: false
+    # Previously:
+    # if: >-
+    #   always()
+    #   && !cancelled()
+    #   && github.event_name == 'push'
+    #   && github.ref == 'refs/heads/main'
+    #   && (
+    #     needs.publish_core.result == 'success'
+    #     || needs.publish_telegram.result == 'success'
+    #     || needs.publish_bridge.result == 'success'
+    #   )
     concurrency:
       group: ghcr-cleanup
       cancel-in-progress: false

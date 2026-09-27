@@ -112,6 +112,36 @@ describe("docker deploy contract", () => {
     expect(active).not.toMatch(/Build telegram image/);
   });
 
+  it("production publish, SSH deploy, and ghcr_cleanup are gated off while stack paused", async () => {
+    const workflow = await readFile(
+      path.join(repoRoot, ".github/workflows/ci-cd.yml"),
+      "utf8",
+    );
+    const active = activeYaml(workflow);
+
+    expect(active).toMatch(/publish_core:[\s\S]*?\n\s*if:\s*false/);
+    expect(active).toMatch(/publish_bridge:[\s\S]*?\n\s*if:\s*false/);
+    expect(active).toMatch(/publish_telegram:[\s\S]*?\n\s*if:\s*false/);
+
+    const deployJob = active.match(
+      /\n  deploy:\n[\s\S]*?(?=\n  [a-z_]+:\n|\n*$)/,
+    )?.[0];
+    expect(deployJob).toBeTruthy();
+    expect(deployJob!).toMatch(/\n\s*if:\s*false/);
+    expect(deployJob!).toMatch(/tailscale\/github-action/);
+    expect(workflow).toMatch(/#\s*Previously:\s*\n\s*#\s*if: >-/);
+
+    const cleanupJob = active.match(
+      /\n  ghcr_cleanup:\n[\s\S]*?(?=\n  [a-z_]+:\n|\n*$)/,
+    )?.[0];
+    expect(cleanupJob).toBeTruthy();
+    expect(cleanupJob!).toMatch(/\n\s*if:\s*false/);
+
+    // CI tests still run on PR/push
+    expect(active).toMatch(/\n  test:\n/);
+    expect(active).toMatch(/\n  changes:\n/);
+  });
+
   it("CI prunes GHCR to keep 10 sha-* tags and preserve main", async () => {
     const workflow = await readFile(
       path.join(repoRoot, ".github/workflows/ci-cd.yml"),

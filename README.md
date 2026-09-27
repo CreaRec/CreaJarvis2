@@ -39,7 +39,7 @@ npm run smoke:text -- "Как меня зовут?"
 
 Audio stays on the host. Core stays in Docker. Details: [clients/desktop/README.md](clients/desktop/README.md).
 
-Production deploy (GHCR + Actions): [docs/docker.md](docs/docker.md).
+Production deploy (GHCR + Actions): [docs/docker.md](docs/docker.md). **Server stack is paused; CI auto-deploy is gated off** until re-enabled in `.github/workflows/ci-cd.yml`.
 
 ## Useful commands
 

@@ -1,6 +1,8 @@
 # Docker + GHCR deployment
 
-Production runs as a Docker Compose stack: Postgres (pgvector), Redis, Core, and the ESP syslog LAN bridge. Images come from GitHub Container Registry (GHCR). Releases happen only through GitHub Actions when changes land on `main`. There is no local deploy script.
+**Production stack paused (2026):** The debian server stack is shut down for now. GitHub Actions **does not** publish GHCR images, SSH-deploy, or run `ghcr_cleanup` on push to `main` (`publish_*`, `deploy`, and `ghcr_cleanup` jobs use `if: false` in `.github/workflows/ci-cd.yml`). CI still runs tests and PR image builds (`push: false`). To bring production back: restore the server from git, then re-enable those jobs (commented `Previously:` `if:` blocks in the workflow).
+
+Production runs as a Docker Compose stack: Postgres (pgvector), Redis, Core, and the ESP syslog LAN bridge. Images come from GitHub Container Registry (GHCR) when publish jobs are enabled. There is no local deploy script.
 
 | Image | Service |
 |-------|---------|
@@ -14,6 +16,8 @@ The desktop client is **not** built or deployed. CI runs its pytest suite only. 
 **CRE-9:** `telegram-bot` is retired from `docker-compose.yml` and CI no longer publishes or redeploys `crea-jarvis2-telegram`. Deploy brings up only `postgres redis core esp-syslog-bridge` (with `--remove-orphans` so a leftover telegram container is dropped). Source and unit tests remain under `services/telegram-bot/`. Voice / desktop / wake-word clients are unchanged.
 
 ## How a release works
+
+When publish/deploy jobs are enabled in CI:
 
 1. Merge or push to `main`.
 2. Actions runs Core tests, bridge tests, desktop tests, ESP host tests, Telegram bot unit tests, and builds changed images.
@@ -134,7 +138,7 @@ Attrs include `component`, `host_name`, `esp_tag` (ESPHome logger tag).
 
 ## Day-to-day operations
 
-Deploy: merge to `main` (only changed images republish).
+Deploy: merge to `main` (only changed images republish) — **disabled while the stack is paused**; see note at top of this page.
 
 On the server (or via Portainer):
 
