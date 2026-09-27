@@ -1,6 +1,6 @@
 # Docker + GHCR deployment
 
-Production runs as a Docker Compose stack: Postgres (pgvector), Redis (Telegram agent rolling context), Core, Telegram bot, and the ESP syslog LAN bridge. Images come from GitHub Container Registry (GHCR). Releases happen only through GitHub Actions when changes land on `main`. There is no local deploy script.
+Production runs as a Docker Compose stack: Postgres (pgvector), Redis, Core, and the ESP syslog LAN bridge. Images come from GitHub Container Registry (GHCR). Releases happen only through GitHub Actions when changes land on `main`. There is no local deploy script.
 
 | Image | Service |
 |-------|---------|
@@ -11,15 +11,17 @@ Deploy directory: `/home/crearec/crea-jarvis2`
 
 The desktop client is **not** built or deployed. CI runs its pytest suite only. Run the client on Mac/host machines against Core over WebSocket.
 
+**CRE-9:** `telegram-bot` is retired from `docker-compose.yml` and CI no longer publishes or redeploys `crea-jarvis2-telegram`. Deploy brings up only `postgres redis core esp-syslog-bridge` (with `--remove-orphans` so a leftover telegram container is dropped). Source and unit tests remain under `services/telegram-bot/`. Voice / desktop / wake-word clients are unchanged.
+
 ## How a release works
 
 1. Merge or push to `main`.
-2. Actions runs Core tests, bridge tests, desktop tests, ESP host tests, and builds changed images.
+2. Actions runs Core tests, bridge tests, desktop tests, ESP host tests, Telegram bot unit tests, and builds changed images.
 3. **Path filters** decide what publishes:
    - Core paths → push `crea-jarvis2` (`main` + `sha-<short>`)
    - `services/esp-syslog-bridge/**` → push `crea-jarvis2-esp-syslog`
    - `docker-compose.yml` alone → redeploy without rebuilding images
-4. Actions copies `docker-compose.yml` to the server, exports **only** the image tags published in that run (`IMAGE_TAG` / `BRIDGE_IMAGE_TAG`), then `docker compose pull && docker compose up -d`.
+4. Actions copies `docker-compose.yml` to the server, exports **only** the image tags published in that run (`IMAGE_TAG` / `BRIDGE_IMAGE_TAG`), then `docker compose pull/up` for `postgres redis core esp-syslog-bridge` only (`--remove-orphans`).
 5. After a successful image publish, `ghcr_cleanup` keeps the **10** newest `sha-*` tags per package, always preserves `:main`, and deletes untagged/orphaned manifests (buildx attestations left behind when tags move).
 
 App secrets stay on the server in `.env`. Postgres data stays in `./data/postgres`; Redis AOF in `./data/redis`. CI never mutates `.env` and never touches Postgres/Redis volumes.

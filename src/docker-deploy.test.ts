@@ -4,6 +4,13 @@ import { describe, expect, it } from "vitest";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 
+function activeYaml(text: string): string {
+  return text
+    .split("\n")
+    .filter((line) => !/^\s*#/.test(line))
+    .join("\n");
+}
+
 describe("docker deploy contract", () => {
   it("docker-compose.yml wires OTEL to Alloy on external lgtm network", async () => {
     const compose = await readFile(path.join(repoRoot, "docker-compose.yml"), "utf8");
@@ -24,12 +31,18 @@ describe("docker deploy contract", () => {
     expect(compose).toMatch(/data\/attachments:\/data\/attachments/);
   });
 
-  it("docker-compose includes telegram-bot sidecar image", async () => {
+  it("CRE-9 retires telegram-bot from active compose services", async () => {
     const compose = await readFile(path.join(repoRoot, "docker-compose.yml"), "utf8");
-    expect(compose).toMatch(/telegram-bot:/);
-    expect(compose).toMatch(/ghcr\.io\/crearec\/crea-jarvis2-telegram/);
-    expect(compose).toMatch(/data\/telegram-bot\/users\.json/);
-    expect(compose).toMatch(/JARVIS_BASE_URL: http:\/\/core:8787/);
+    const active = activeYaml(compose);
+
+    expect(compose).toMatch(/CRE-9/);
+    // Active (non-comment) service keys must not include telegram-bot
+    expect(active).not.toMatch(/^\s*telegram-bot:\s*$/m);
+    expect(active).toMatch(/^\s*core:\s*$/m);
+    expect(active).toMatch(/^\s*esp-syslog-bridge:\s*$/m);
+    // Restore recipe kept as comments
+    expect(compose).toMatch(/#\s*telegram-bot:/);
+    expect(compose).toMatch(/crea-jarvis2-telegram/);
   });
 
   it("Dockerfile uses GitHub Packages auth for npm install", async () => {
@@ -59,16 +72,44 @@ describe("docker deploy contract", () => {
     expect(workflow).toMatch(/packages:\s*read/);
   });
 
-  it("CI path filters gate core, telegram service, and bridge publishes", async () => {
+  it("CI path filters gate core and bridge publishes (not telegram)", async () => {
     const workflow = await readFile(
       path.join(repoRoot, ".github/workflows/ci-cd.yml"),
       "utf8",
     );
+    const active = activeYaml(workflow);
 
-    expect(workflow).toMatch(/telegram:\s*\n\s+- 'services\/telegram-bot\/\*\*'/);
-    expect(workflow).toMatch(/publish_telegram:/);
-    expect(workflow).toMatch(/TELEGRAM_IMAGE/);
+    expect(active).toMatch(/bridge:\s*\n\s+- 'services\/esp-syslog-bridge\/\*\*'/);
+    expect(active).not.toMatch(/telegram:\s*\n\s+- 'services\/telegram-bot\/\*\*'/);
+    expect(active).toMatch(/publish_telegram:[\s\S]*?\n\s*if:\s*false/);
     expect(workflow).toMatch(/crea-jarvis2-telegram/);
+  });
+
+  it("CRE-9 deploy ups core/bridge only and never recreates telegram-bot", async () => {
+    const workflow = await readFile(
+      path.join(repoRoot, ".github/workflows/ci-cd.yml"),
+      "utf8",
+    );
+    const active = activeYaml(workflow);
+
+    // Top-level jobs use two-space indent; avoid cutting at nested `steps:`.
+    const deployJob = active.match(
+      /\n  deploy:\n[\s\S]*?(?=\n  [a-z_]+:\n|\n*$)/,
+    )?.[0];
+    expect(deployJob).toBeTruthy();
+    expect(deployJob!).not.toMatch(
+      /needs\.changes\.outputs\.telegram\s*==\s*'true'/,
+    );
+    expect(deployJob!).not.toMatch(/export TELEGRAM_IMAGE_TAG=/);
+    expect(deployJob!).not.toMatch(/TELEGRAM_CHANGED/);
+    expect(deployJob!).toMatch(
+      /docker compose up -d --remove-orphans postgres redis core esp-syslog-bridge/,
+    );
+    expect(deployJob!).not.toMatch(/telegram-bot/);
+
+    // Unit tests kept; source not deleted
+    expect(workflow).toMatch(/working-directory:\s*services\/telegram-bot/);
+    expect(active).not.toMatch(/Build telegram image/);
   });
 
   it("CI prunes GHCR to keep 10 sha-* tags and preserve main", async () => {
